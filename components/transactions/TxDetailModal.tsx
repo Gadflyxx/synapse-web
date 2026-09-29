@@ -11,8 +11,9 @@ import { useSoroban } from "@/lib/soroban/SorobanProvider";
 import { invokeContract, simulateContractCall, stringArg } from "@/lib/soroban/contract";
 import { AMBER, BG1, BG2, BORDER, DIM, MONO, STATUS_META } from "@/lib/constants";
 import { formatAmount, shortId } from "@/lib/utils";
-import { TxTimeline, type TxTimelineEvent } from "@/components/transactions/TxTimeline";
 import type { Transaction, TxStatus } from "@/lib/types";
+import { useFocusTrap } from "@/components/ui/useFocusTrap";
+import { TxTimeline, type TxTimelineEvent } from "@/components/transactions/TxTimeline";
 import { TxReceiptPrintView } from "./TxReceiptPrintView";
 
 const RPC_URL = process.env.NEXT_PUBLIC_SOROBAN_RPC_URL ?? "https://soroban-testnet.stellar.org";
@@ -126,6 +127,11 @@ export function TxDetailModal({ tx, onClose }: TxDetailModalProps) {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [onClose]);
+
+  // Shared useFocusTrap hook for overlay focus trap & escape handling
+  useFocusTrap(modalRef, {
+    onEscape: onClose,
+  });
 
   async function runTxCall(method: string, extraArgs: string[] = []) {
     if (!contractId) {

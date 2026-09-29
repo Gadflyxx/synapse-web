@@ -1,5 +1,6 @@
 "use client";
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import dynamic from "next/dynamic";
 import { useRouter, useSearchParams } from "next/navigation";
 import { DashboardTab } from "./dashboard/DashboardTab";
 import { TransactionsTab } from "./transactions/TransactionsTab";
@@ -21,8 +22,44 @@ import { useWalletExtensionDetection } from "@/lib/wallet/detection";
 import { NoWalletGuidance } from "@/components/wallet/NoWalletGuidance";
 import { Profiled, ProfilerOverlay } from "@/lib/dev-tools/ProfilerOverlay";
 
-type Tab = "dashboard" | "transactions" | "analytics" | "admin" | "docs";
-const TABS: Tab[] = ["dashboard", "transactions", "analytics", "admin", "docs"];
+const TabLoadingFallback = () => (
+  <div
+    role="status"
+    aria-live="polite"
+    style={{
+      padding: "40px 20px",
+      textAlign: "center",
+      fontFamily: MONO,
+      fontSize: 11,
+      color: DIM,
+      letterSpacing: "0.1em",
+    }}
+  >
+    LOADING TAB MODULE…
+  </div>
+);
+
+// Code-split each tab into lazy-loaded chunks via next/dynamic
+const DashboardTab = dynamic(
+  () => import("./dashboard/DashboardTab").then((mod) => mod.DashboardTab),
+  { loading: () => <TabLoadingFallback /> }
+);
+
+const TransactionsTab = dynamic(
+  () => import("./transactions/TransactionsTab").then((mod) => mod.TransactionsTab),
+  { loading: () => <TabLoadingFallback /> }
+);
+
+const AdminTab = dynamic(() => import("./admin/AdminTab").then((mod) => mod.AdminTab), {
+  loading: () => <TabLoadingFallback />,
+});
+
+const DocsTab = dynamic(() => import("./docs/DocsTab").then((mod) => mod.DocsTab), {
+  loading: () => <TabLoadingFallback />,
+});
+
+export type Tab = "dashboard" | "transactions" | "analytics" | "admin" | "docs";
+export const TABS: Tab[] = ["dashboard", "transactions", "analytics", "admin", "docs"];
 
 type Theme = "dark" | "light";
 const THEME_STORAGE_KEY = "synapse-theme";
@@ -38,11 +75,11 @@ function isTab(value: string | null): value is Tab {
   return value !== null && (TABS as string[]).includes(value);
 }
 
-export function Shell() {
+export function Shell({ initialTab = "dashboard" }: { initialTab?: Tab }) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const tabParam = searchParams.get("tab");
-  const tab: Tab = isTab(tabParam) ? tabParam : "dashboard";
+  const tab: Tab = isTab(tabParam) ? tabParam : initialTab;
 
   const setTab = useCallback(
     (next: Tab) => {
@@ -68,6 +105,23 @@ export function Shell() {
   const canSwitch = connected && accounts.length > 1;
   const { toast } = useToast();
   const navRef = useRef<HTMLElement>(null);
+
+  // Sync tab from URL hash if present
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const hash = window.location.hash.replace("#", "").toLowerCase() as Tab;
+      if (TABS.includes(hash)) {
+        setTab(hash);
+      }
+    }
+  }, []);
+
+  const handleTabSelect = (selectedTab: Tab) => {
+    setTab(selectedTab);
+    if (typeof window !== "undefined") {
+      window.location.hash = selectedTab;
+    }
+  };
 
   useEffect(() => {
     setTheme(getPreferredTheme());
@@ -107,7 +161,7 @@ export function Shell() {
       return;
     }
     e.preventDefault();
-    setTab(TABS[nextIndex]);
+    handleTabSelect(TABS[nextIndex]);
     const buttons = navRef.current?.querySelectorAll<HTMLButtonElement>('[role="tab"]');
     buttons?.[nextIndex]?.focus();
   };
@@ -122,75 +176,7 @@ export function Shell() {
     }
   };
 
-  // ── Command palette ──
-  const [paletteOpen, setPaletteOpen] = useState(false);
-
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
-        e.preventDefault();
-        setPaletteOpen((open) => !open);
-      }
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, []);
-
-  const commands = useMemo<Command[]>(() => {
-    const navCommands: Command[] = TABS.map((t) => ({
-      id: `nav-${t}`,
-      label: `Go to ${t}`,
-      keywords: ["navigate", "tab", t],
-      action: () => setTab(t),
-    }));
-
-    const actionCommands: Command[] = [
-      {
-        id: "wallet-toggle",
-        label: connected ? "Disconnect wallet" : "Connect wallet",
-        keywords: ["wallet", "connect", "disconnect", "account"],
-        action: () => (connected ? disconnect() : connect()),
-      },
-      {
-        id: "open-transactions",
-        label: "Open transactions",
-        keywords: ["transactions", "tx", "history", "activity"],
-        action: () => setTab("transactions"),
-      },
-    ];
-
-    const settingsCommands: Command[] = [
-      {
-        id: "toggle-theme",
-        label: "Toggle theme",
-        keywords: ["theme", "dark", "light", "appearance", "settings"],
-        action: () => {
-          const root = document.documentElement;
-          const next = root.dataset.theme === "light" ? "dark" : "light";
-          root.dataset.theme = next;
-          toast(`Theme: ${next}`, "success");
-        },
-      },
-      {
-        id: "toggle-locale",
-        label: "Toggle locale",
-        keywords: ["locale", "language", "i18n", "settings"],
-        action: () => {
-          const root = document.documentElement;
-          const next = root.lang === "en" ? "es" : "en";
-          root.lang = next;
-          toast(`Locale: ${next}`, "success");
-        },
-      },
-    ];
-
-    return [...navCommands, ...actionCommands, ...settingsCommands];
-  }, [connected, connect, disconnect, setTab, toast]);
-
-  useEffect(() => {
-    if (!canSwitch) setSwitcherOpen(false);
-  }, [canSwitch]);
-
+    handleTabSelect(TABS[nextIndex]);
   return (
     <NotificationProvider>
     <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
@@ -414,7 +400,7 @@ export function Shell() {
             aria-selected={tab === t}
             aria-controls={`tabpanel-${t}`}
             tabIndex={tab === t ? 0 : -1}
-            onClick={() => setTab(t)}
+            onClick={() => handleTabSelect(t)}
             onKeyDown={(e) => handleTabKeyDown(e, idx)}
             style={{
               padding: "12px 22px",
