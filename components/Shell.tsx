@@ -39,6 +39,12 @@ const TabLoadingFallback = () => (
   </div>
 );
 
+// Responsive breakpoints (mobile-first, Tailwind v4 defaults):
+//   < 640px  (base)  → mobile: stacked header, scrollable tab bar, compact footer
+//   >= 640px (sm)    → tablet: inline header, full tab bar
+//   >= 1024px (lg)   → desktop: original spacing
+const MOBILE_MAX = 640;
+
 // Code-split each tab into lazy-loaded chunks via next/dynamic
 const DashboardTab = dynamic(
   () => import("./dashboard/DashboardTab").then((mod) => mod.DashboardTab),
@@ -98,6 +104,7 @@ export function Shell({ initialTab = "dashboard" }: { initialTab?: Tab }) {
   const [theme, setTheme] = useState<Theme>("dark");
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const [showGuidance, setShowGuidance] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
   const { status: rpcStatus, lastEventAge, health: rpcHealth } = useSorobanStatus();
   const { address, accounts, connecting, error, connect, disconnect, switchAccount } = useWallet();
   const { hasAny, checked } = useWalletExtensionDetection();
@@ -134,6 +141,14 @@ export function Shell({ initialTab = "dashboard" }: { initialTab?: Tab }) {
   useEffect(() => {
     if (error) toast(error, "error");
   }, [error, toast]);
+
+  useEffect(() => {
+    const mq = window.matchMedia(`(max-width: ${MOBILE_MAX - 1}px)`);
+    const update = () => setIsMobile(mq.matches);
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, []);
 
   const prevAddress = useRef<string | null>(null);
   useEffect(() => {
@@ -192,9 +207,17 @@ export function Shell({ initialTab = "dashboard" }: { initialTab?: Tab }) {
 
   return (
     <NotificationProvider>
-    <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
+    <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", overflowX: "hidden" }}>
       {/* ── Header ── */}
-      <header className="shell-header" role="banner">
+      <header
+        className="shell-header"
+        role="banner"
+        style={{
+          flexDirection: isMobile ? "column" : "row",
+          alignItems: isMobile ? "stretch" : "center",
+          gap: isMobile ? 10 : 0,
+        }}
+      >
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <span style={{ fontSize: 14, fontWeight: 700, letterSpacing: "0.14em", color: "var(--fg-strong)" }}>
             SYNAPSE
@@ -215,7 +238,14 @@ export function Shell({ initialTab = "dashboard" }: { initialTab?: Tab }) {
           </span>
         </div>
 
-        <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 14,
+            justifyContent: isMobile ? "space-between" : "flex-end",
+          }}
+        >
           <ContractSwitcher />
           <span
             style={{
@@ -257,6 +287,8 @@ export function Shell({ initialTab = "dashboard" }: { initialTab?: Tab }) {
               cursor: "pointer",
               letterSpacing: "0.06em",
               transition: "all 0.2s",
+              opacity: connecting ? 0.6 : 1,
+              flex: isMobile ? 1 : undefined,
             }}
             onMouseEnter={(e) => {
               e.currentTarget.style.color = AMBER;
@@ -404,7 +436,12 @@ export function Shell({ initialTab = "dashboard" }: { initialTab?: Tab }) {
       )}
 
       {/* ── Tab Bar ── */}
-      <nav ref={navRef} className="shell-nav" role="tablist" aria-label="Dashboard sections">
+      <nav ref={navRef} className="shell-nav" role="tablist" aria-label="Dashboard sections"
+        style={{
+          overflowX: isMobile ? "auto" : undefined,
+          WebkitOverflowScrolling: "touch",
+        }}
+      >
         {TABS.map((t, idx) => (
           <button
             key={t}
@@ -416,7 +453,7 @@ export function Shell({ initialTab = "dashboard" }: { initialTab?: Tab }) {
             onClick={() => handleTabSelect(t)}
             onKeyDown={(e) => handleTabKeyDown(e, idx)}
             style={{
-              padding: "12px 22px",
+              padding: isMobile ? "12px 16px" : "12px 22px",
               background: "none",
               border: "none",
               cursor: "pointer",
@@ -427,6 +464,8 @@ export function Shell({ initialTab = "dashboard" }: { initialTab?: Tab }) {
               borderBottom: tab === t ? `2px solid ${AMBER}` : "2px solid transparent",
               marginBottom: -1,
               transition: "color 0.15s",
+              flex: isMobile ? "1 0 auto" : undefined,
+              whiteSpace: "nowrap",
               outlineOffset: "-2px",
             }}
             onMouseEnter={(e) => {
@@ -442,7 +481,7 @@ export function Shell({ initialTab = "dashboard" }: { initialTab?: Tab }) {
       </nav>
 
       {/* ── Body ── */}
-      <main className="shell-main" id={`tabpanel-${tab}`} role="tabpanel" aria-labelledby={`tab-${tab}`}>
+      <main className="shell-main" id={`tabpanel-${tab}`} role="tabpanel" aria-labelledby={`tab-${tab}`} style={{ overflowX: "hidden" }}>
         {tab === "dashboard" && (
           <TabErrorBoundary title="Dashboard tab error">
             <Profiled id="DashboardTab">
@@ -483,8 +522,10 @@ export function Shell({ initialTab = "dashboard" }: { initialTab?: Tab }) {
         role="contentinfo"
         style={{
           borderTop: `1px solid ${BORDER}`,
-          padding: "10px 28px",
+          padding: isMobile ? "10px 16px" : "10px 28px",
           display: "flex",
+          flexDirection: isMobile ? "column" : "row",
+          gap: isMobile ? 6 : 0,
           justifyContent: "space-between",
           background: BG1,
         }}

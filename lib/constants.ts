@@ -50,169 +50,41 @@ export const DIM = "var(--dim)";
 export const MONO = "var(--font-ibm-plex-mono), monospace";
 
 /**
- * The network passphrase this dashboard is configured to target.
+ * Parameter type descriptors used to drive the DocsTab ABI playground.
  *
- * Used by the wallet layer to detect a mismatch between the connected
- * wallet's active network and the dashboard's configured network before
- * allowing a submission. Defaults to Testnet; override via
- * `NEXT_PUBLIC_NETWORK_PASSPHRASE` for other deployments.
+ * The playground derives its generated form directly from these descriptors,
+ * so adding a new entrypoint (or a new parameter) here automatically produces
+ * a working form field without touching the UI. `kind` maps onto the argument
+ * encoders in `lib/soroban/args.ts`.
  */
-export const NETWORK_PASSPHRASE =
-  process.env.NEXT_PUBLIC_NETWORK_PASSPHRASE ??
-  "Test SDF Network ; September 2015";
+export type AbiParamKind =
+  | "address"
+  | "string"
+  | "u32"
+  | "i128"
+  | "bool"
+  | "tx_payload"
+  | "callback_payload";
 
-/** Human-readable label for the configured network, derived from the passphrase. */
-export const NETWORK_LABEL = NETWORK_PASSPHRASE.includes("Test")
-  ? "Testnet"
-  : NETWORK_PASSPHRASE.includes("Public")
-    ? "Mainnet"
-    : "Custom Network";
-
-/**
- * Idle-session timeout configuration for connected wallet sessions.
- *
- * A wallet left connected on a shared or unattended machine is a security
- * exposure, so the wallet layer auto-disconnects after a period of user
- * inactivity. `IDLE_TIMEOUT_MS` is the total inactivity window before the
- * session is reset; `IDLE_WARNING_MS` is how long before expiry the warning
- * prompt (with a "stay connected" option) is shown. Both are overridable via
- * environment variables for deployments that need a different policy.
- */
-export const IDLE_TIMEOUT_MS = Number(
-  process.env.NEXT_PUBLIC_IDLE_TIMEOUT_MS ?? 15 * 60 * 1000,
-);
-
-export const IDLE_WARNING_MS = Number(
-  process.env.NEXT_PUBLIC_IDLE_WARNING_MS ?? 60 * 1000,
-);
-
-/**
- * Priority-ordered list of Soroban RPC endpoints used for client-side
- * selection and failover.
- *
- * The first entry is the preferred endpoint. `NEXT_PUBLIC_SOROBAN_RPC_URL`
- * remains the primary configuration knob; additional endpoints can be
- * supplied as a comma-separated list via `NEXT_PUBLIC_SOROBAN_RPC_URLS`
- * (highest priority first). Duplicates are removed while preserving order so
- * the same endpoint is never health-checked or selected twice.
- */
-export const SOROBAN_RPC_URLS: string[] = (() => {
-  const primary = process.env.NEXT_PUBLIC_SOROBAN_RPC_URL;
-  const extra = (process.env.NEXT_PUBLIC_SOROBAN_RPC_URLS ?? "")
-    .split(",")
-    .map((url) => url.trim())
-    .filter(Boolean);
-
-  const ordered = [primary, ...extra].filter(
-    (url): url is string => typeof url === "string" && url.length > 0,
-  );
-
-  return Array.from(new Set(ordered));
-})();
-
-/**
- * Client-side failover tuning.
- *
- * `RPC_HEALTH_CHECK_INTERVAL_MS` is how often healthy endpoints are
- * re-probed in the background. `RPC_FAILURE_THRESHOLD` is the number of
- * consecutive failures before an endpoint's circuit opens. `RPC_COOLDOWN_MS`
- * is the hysteresis window an endpoint stays out of rotation after opening,
- * preventing rapid flapping on transient errors. `RPC_HEALTH_TIMEOUT_MS`
- * bounds each probe so a blackholed endpoint cannot stall selection.
- */
-export const RPC_HEALTH_CHECK_INTERVAL_MS = Number(
-  process.env.NEXT_PUBLIC_RPC_HEALTH_CHECK_INTERVAL_MS ?? 30 * 1000,
-);
-
-export const RPC_FAILURE_THRESHOLD = Number(
-  process.env.NEXT_PUBLIC_RPC_FAILURE_THRESHOLD ?? 2,
-);
-
-export const RPC_COOLDOWN_MS = Number(
-  process.env.NEXT_PUBLIC_RPC_COOLDOWN_MS ?? 60 * 1000,
-);
-
-export const RPC_HEALTH_TIMEOUT_MS = Number(
-  process.env.NEXT_PUBLIC_RPC_HEALTH_TIMEOUT_MS ?? 5 * 1000,
-);
-
-/**
- * Predefined Soroban RPC environments offered by the network switcher.
- *
- * `passphrase` is the network passphrase the endpoint is expected to report
- * via `getNetwork`. It is used to detect a passphrase mismatch when a user
- * validates a custom endpoint, so the two must stay in sync with the
- * predefined switcher options.
- */
-export const SOROBAN_NETWORKS = [
-  {
-    id: "testnet",
-    label: "Testnet",
-    rpcUrl: "https://soroban-testnet.stellar.org",
-    passphrase: "Test SDF Network ; September 2015",
-  },
-  {
-    id: "futurenet",
-    label: "Futurenet",
-    rpcUrl: "https://rpc-futurenet.stellar.org",
-    passphrase: "Test SDF Future Network ; October 2022",
-  },
-] as const;
-
-export type SorobanNetworkId = (typeof SOROBAN_NETWORKS)[number]["id"];
-
-/**
- * Storage key for a user-supplied custom Soroban RPC endpoint. The value is
- * only written after a successful connectivity/compatibility validation.
- */
-export const CUSTOM_RPC_STORAGE_KEY = "soroban.customRpcEndpoint";
-
-/**
- * The RPC method used as a lightweight health-check before a custom endpoint
- * is persisted or activated. `getHealth` is the Soroban RPC equivalent of a
- * liveness probe and requires no signing.
- */
-export const RPC_HEALTH_METHOD = "getHealth";
-
-/**
- * The RPC method used to read the endpoint's network passphrase so a custom
- * endpoint can be rejected when it does not match the expected network.
- */
-export const RPC_NETWORK_METHOD = "getNetwork";
-
-/**
- * A single documented parameter of a contract entrypoint.
- *
- * `type` is the Soroban/ScVal type name used by the clear-signing decoder in
- * `lib/soroban/args.ts` to pick the right human-readable formatter. `struct`
- * names the struct shape for complex arguments so nested fields can be
- * decoded field-by-field instead of shown as an opaque blob.
- */
-export type AbiParam = {
+export interface AbiParam {
   name: string;
-  type: "Address" | "String" | "bool" | "u32" | "i128" | "struct";
-  struct?: string;
-};
+  kind: AbiParamKind;
+  /** Optional human hint shown as the field placeholder. */
+  hint?: string;
+}
 
-/**
- * Documented struct shapes referenced by `ABI_ENDPOINTS` parameters. Each
- * entry lists the fields (in order) of a Soroban struct argument so the
- * clear-signing decoder can label nested values.
- */
-export const ABI_STRUCTS: Record<string, AbiParam[]> = {
-  TxPayload: [
-    { name: "tx_id", type: "String" },
-    { name: "amount", type: "i128" },
-    { name: "destination", type: "Address" },
-  ],
-  CallbackPayload: [
-    { name: "tx_id", type: "String" },
-    { name: "url", type: "String" },
-    { name: "event", type: "String" },
-  ],
-};
+export interface AbiEndpoint {
+  name: string;
+  sig: string;
+  access: "one-time" | "relay_signer" | "admin" | "public";
+  desc: string;
+  /** Ordered parameters; empty for zero-arg entrypoints. */
+  params: AbiParam[];
+  /** True when the call mutates ledger state and therefore needs a signature. */
+  stateChanging: boolean;
+}
 
-export const ABI_ENDPOINTS = [
+export const ABI_ENDPOINTS: AbiEndpoint[] = [
   {
     name: "initialize",
     sig: "initialize(admin: Address, relay_signer: Address)",
@@ -222,6 +94,7 @@ export const ABI_ENDPOINTS = [
       { name: "admin", type: "Address" },
       { name: "relay_signer", type: "Address" },
     ] as AbiParam[],
+    stateChanging: true,
   },
   {
     name: "register_transaction",
@@ -231,6 +104,7 @@ export const ABI_ENDPOINTS = [
     params: [
       { name: "payload", type: "struct", struct: "TxPayload" },
     ] as AbiParam[],
+    stateChanging: true,
   },
   {
     name: "start_processing",
@@ -255,6 +129,7 @@ export const ABI_ENDPOINTS = [
       { name: "tx_id", type: "String" },
       { name: "reason", type: "String" },
     ] as AbiParam[],
+    stateChanging: true,
   },
   {
     name: "get_transaction",
@@ -262,6 +137,7 @@ export const ABI_ENDPOINTS = [
     access: "public",
     desc: "Read-only simulation. Returns full Transaction struct from ledger storage.",
     params: [{ name: "tx_id", type: "String" }] as AbiParam[],
+    stateChanging: false,
   },
   {
     name: "is_duplicate",
@@ -278,6 +154,7 @@ export const ABI_ENDPOINTS = [
     params: [
       { name: "payload", type: "struct", struct: "CallbackPayload" },
     ] as AbiParam[],
+    stateChanging: true,
   },
   {
     name: "transfer_admin",
@@ -306,5 +183,6 @@ export const ABI_ENDPOINTS = [
     access: "public",
     desc: "Returns contract semver string e.g. '0.1.0'.",
     params: [] as AbiParam[],
+    stateChanging: false,
   },
 ];

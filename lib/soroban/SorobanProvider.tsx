@@ -131,6 +131,7 @@ export function SorobanProvider({
     setHealth({ connected: false, lastCheck: 0, lastEventTimestamp: null, error: null });
 
     const unsubHealth = poller.onHealth(setHealth);
+
     const unsubEvents = poller.onEvents((newEvents) => {
       setEvents((prev) => {
         const combined = [...newEvents, ...prev];
@@ -148,8 +149,42 @@ export function SorobanProvider({
   }, [poller]);
 
   const value = useMemo<SorobanContextValue>(
-    () => ({ events, health, poller, environment, setEnvironment }),
+    () => ({
+      events,
+      health,
+      poller,
+      environment,
+      setEnvironment,
+    }),
     [events, health, poller, environment, setEnvironment],
+  );
+
+  return (
+    <SorobanContext.Provider value={value}>{children}</SorobanContext.Provider>
+  );
+}
+    const unsubEvents = poller.onEvents((newEvents) => {
+      setStore((prev) => {
+        const combined = [...newEvents, ...prev.events];
+        return { ...prev, events: combined.slice(0, 200) };
+      });
+    });
+
+    poller.start();
+
+    return () => {
+      poller.stop();
+      unsubHealth();
+      unsubEvents();
+    };
+  }, [store.poller]);
+
+  const value = useMemo<SorobanContextValue>(
+    () => ({ events, health, poller, environment, setEnvironment }),
+    [events, health, poller, environment, setEnvironment]
+  );
+
+  return <SorobanContext.Provider value={value}>{children}</SorobanContext.Provider>;
   );
 
   return <SorobanContext.Provider value={value}>{children}</SorobanContext.Provider>;
