@@ -1,7 +1,7 @@
 "use client";
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import dynamic from "next/dynamic";
-import { useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { DashboardTab } from "./dashboard/DashboardTab";
 import { TransactionsTab } from "./transactions/TransactionsTab";
 import { AdminTab } from "./admin/AdminTab";
@@ -42,8 +42,6 @@ const TabLoadingFallback = () => (
     LOADING TAB MODULE…
   </div>
 );
-
-import { Profiled, ProfilerOverlay } from "@/lib/dev-tools/ProfilerOverlay";
 
 // Code-split each tab into lazy-loaded chunks via next/dynamic
 const DashboardTab = dynamic(
@@ -141,6 +139,15 @@ export function Shell({ initialTab = "dashboard" }: { initialTab?: Tab }) {
     document.documentElement.setAttribute("data-theme", theme);
     window.localStorage.setItem(THEME_STORAGE_KEY, theme);
   }, [theme]);
+
+  // `/` stays canonical for the dashboard so the root URL does not turn into
+  // `/dashboard`, which would make the shareable link uglier for no gain.
+  const selectTab = useCallback(
+    (next: Tab) => {
+      router.push(next === DEFAULT_TAB ? "/" : tabPath(next));
+    },
+    [router]
+  );
 
   useEffect(() => {
     if (error) toast(error, "error");
