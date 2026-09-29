@@ -39,11 +39,7 @@ const TabLoadingFallback = () => (
   </div>
 );
 
-// Responsive breakpoints (mobile-first, Tailwind v4 defaults):
-//   < 640px  (base)  → mobile: stacked header, scrollable tab bar, compact footer
-//   >= 640px (sm)    → tablet: inline header, full tab bar
-//   >= 1024px (lg)   → desktop: original spacing
-const MOBILE_MAX = 640;
+import { Profiled, ProfilerOverlay } from "@/lib/dev-tools/ProfilerOverlay";
 
 // Code-split each tab into lazy-loaded chunks via next/dynamic
 const DashboardTab = dynamic(
@@ -481,7 +477,13 @@ export function Shell({ initialTab = "dashboard" }: { initialTab?: Tab }) {
       </nav>
 
       {/* ── Body ── */}
-      <main className="shell-main" id={`tabpanel-${tab}`} role="tabpanel" aria-labelledby={`tab-${tab}`} style={{ overflowX: "hidden" }}>
+      <main
+        className="shell-main"
+        id={`tabpanel-${tab}`}
+        role="tabpanel"
+        aria-labelledby={`tab-${tab}`}
+        style={{ overflowX: "hidden" }}
+      >
         {tab === "dashboard" && (
           <TabErrorBoundary title="Dashboard tab error">
             <Profiled id="DashboardTab">
