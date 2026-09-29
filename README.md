@@ -111,6 +111,18 @@ npm run format:check # Prettier (CI check)
 npx tsc --noEmit     # Type-check without emitting
 ```
 
+npm run release # Cut a release from conventional commits
+npm run release:dry # Report the version/notes without publishing
+
+```
+
+### Releases
+
+Versions, the changelog, and GitHub releases are generated from conventional
+commits by semantic-release on merge to `main`. See
+[docs/release-process.md](docs/release-process.md) for the commit format, the
+pre-1.0 versioning rules, and the one-time tag step the repository still needs.
+
 ## Deployments and performance
 
 GitHub Actions runs lint, typecheck, tests, build, and the initial-route JavaScript budget before deployment. PRs from branches in this repository receive an automatically updated Vercel preview comment; external-fork PRs run the quality gates but do not receive deployment credentials or an automated preview. Preview builds use Stellar Testnet and an empty contract ID, so they render mock data by default.
@@ -177,3 +189,4 @@ Notable milestones on the path to a working testnet client:
 | Quality gates  | Dependency audit, SBOM, bundle budget, Lighthouse                |
 | Deploys        | Vercel Rolling Releases canary + auto-rollback                   |
 | Target network | Stellar Testnet (Soroban)                                        |
+```
