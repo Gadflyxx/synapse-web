@@ -6,6 +6,7 @@ import { Field } from "@/components/ui/Field";
 import { SorobanTip } from "@/components/ui/SorobanTip";
 import { ActionButton } from "@/components/ui/ActionButton";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { HighStakesConfirmDialog } from "@/components/ui/HighStakesConfirmDialog";
 import { useToast } from "@/components/ui/Toast";
 import { useWallet } from "@/lib/wallet/WalletProvider";
 import { addressArg, invokeContract, simulateContractCall } from "@/lib/soroban/contract";
@@ -31,6 +32,16 @@ interface ConfirmConfig {
   /** If set, user must retype this exact value before confirming */
   retypeKey?: string;
   accentColor?: string;
+  /**
+   * When true, use HighStakesConfirmDialog instead of the standard ConfirmDialog.
+   * Reserve this for genuinely irreversible, high-severity actions only.
+   *
+   * Risk assessment:
+   *   ✅ transfer_admin   — irreversible; wrong address = permanent lock-out → highStakes: true
+   *   ❌ set_relay_signer — reversible (admin can call again)                → highStakes: false
+   *   ❌ initialize       — one-shot but not destructive                     → no confirm needed
+   */
+  highStakes?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -110,7 +121,20 @@ function AdminCard({
         <SorobanTip>{tip}</SorobanTip>
       </Panel>
 
-      {pendingVals && confirm && (
+      {/* High-stakes irreversible actions use HighStakesConfirmDialog */}
+      {pendingVals && confirm?.highStakes && retypeValue && (
+        <HighStakesConfirmDialog
+          title={confirm.title}
+          message={confirm.message}
+          confirmValue={retypeValue}
+          confirmLabel="TYPE THE NEW ADMIN ADDRESS EXACTLY TO CONFIRM"
+          onConfirm={handleConfirm}
+          onCancel={() => setPendingVals(null)}
+        />
+      )}
+
+      {/* Standard reversible confirmations use ConfirmDialog */}
+      {pendingVals && confirm && !confirm.highStakes && (
         <ConfirmDialog
           title={confirm.title}
           message={confirm.message}
@@ -212,7 +236,7 @@ export function AdminTab() {
         onSubmit={(v) => runAdminCall("initialize", [v.admin ?? "", v.relay_signer ?? ""])}
       />
 
-      {/* Transfer admin — requires retype confirmation */}
+      {/* Transfer admin — IRREVERSIBLE: requires HighStakesConfirmDialog with typed address */}
       <AdminCard
         title="TRANSFER ADMIN"
         tip="transfer_admin(new_admin: Address) — caller must be current admin; irreversible if wrong address"
@@ -224,9 +248,13 @@ export function AdminTab() {
           message:
             "You are transferring admin rights to a new address. " +
             "If the address is wrong you will permanently lose access to all admin functions. " +
-            "Retype the destination address exactly to continue.",
+            "There is no undo. Type the destination address exactly to proceed.",
           retypeKey: "new_admin",
           accentColor: STATUS_META.FAILED.color,
+          // highStakes=true routes this through HighStakesConfirmDialog, which
+          // disables the confirm button at the DOM level until the typed value
+          // matches exactly.  See risk assessment in ConfirmConfig above.
+          highStakes: true,
         }}
         onSubmit={(v) => runAdminCall("transfer_admin", [v.new_admin ?? ""])}
       />

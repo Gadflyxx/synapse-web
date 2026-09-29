@@ -1,9 +1,13 @@
 # Synapse Core
 
 A Soroban transaction-lifecycle dashboard built with Next.js 16 and React 19.
-Synapse Core lets you inspect, trace, and drive transactions through a Soroban
-smart contract deployed on Stellar Testnet — from registration through
-completion or failure.
+
+> **Security**: to report a vulnerability, see [SECURITY.md](./SECURITY.md) or open a
+> [private GitHub advisory](https://github.com/Synapse-bridgez/synapse-web/security/advisories/new).
+> Please do **not** open a public issue for security findings.
+> Synapse Core lets you inspect, trace, and drive transactions through a Soroban
+> smart contract deployed on Stellar Testnet — from registration through
+> completion or failure.
 
 > **Current state: real wallet + contract calls, mock data as fallback.**
 > Connect a Freighter or xBull wallet and every action (admin functions, transaction
