@@ -18,6 +18,8 @@ import { AMBER, BG1, BORDER, DIM, DOCS_SITE_URL, MONO, STATUS_META } from "@/lib
 import { useSorobanStatus } from "@/lib/soroban/useSorobanStatus";
 import { useWallet } from "@/lib/wallet/WalletProvider";
 import { useToast } from "@/components/ui/Toast";
+import { OriginBadge } from "@/components/wallet/OriginBadge";
+import { GuidedTour } from "@/components/onboarding/GuidedTour";
 import { shortId } from "@/lib/utils";
 import { useLocale, useTranslations } from "next-intl";
 import { useRouter } from "next/navigation";
@@ -138,6 +140,7 @@ export function Shell({ initialTab = "dashboard" }: { initialTab?: Tab }) {
   const router = useRouter();
   const tour = useGuidedTour();
   const navRef = useRef<HTMLElement>(null);
+  const [tourSignal, setTourSignal] = useState(0);
 
   // Sync tab from URL hash if present
   useEffect(() => {
@@ -286,24 +289,27 @@ export function Shell({ initialTab = "dashboard" }: { initialTab?: Tab }) {
             justifyContent: isMobile ? "space-between" : "flex-end",
           }}
         >
+          <OriginBadge />
           <ContractSwitcher />
           <button
-            onClick={tour.start}
-            aria-label="Start guided tour"
+            type="button"
+            onClick={() => setTourSignal((s) => s + 1)}
+            aria-label="Show wallet security briefing"
+            title="Wallet security briefing"
             style={{
               background: "none",
-              border: "none",
+              border: `1px solid ${BORDER}`,
               color: DIM,
               fontFamily: MONO,
-              fontSize: 10,
-              letterSpacing: "0.1em",
+              fontSize: 11,
+              width: 26,
+              height: 26,
+              lineHeight: 1,
               cursor: "pointer",
-              padding: 0,
             }}
-            onMouseEnter={(e) => (e.currentTarget.style.color = AMBER)}
-            onMouseLeave={(e) => (e.currentTarget.style.color = DIM)}
           >
-            ? tour
+            ?
+          </button>
           </button>
           <span
             style={{
@@ -620,6 +626,8 @@ export function Shell({ initialTab = "dashboard" }: { initialTab?: Tab }) {
           </TabErrorBoundary>
         )}
       </main>
+
+      <GuidedTour reopenSignal={tourSignal} />
 
       {/* ── Footer ── */}
       <footer
