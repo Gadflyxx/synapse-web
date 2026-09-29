@@ -133,24 +133,17 @@ Other scripts:
 ```bash
 npm run build        # Production build
 npm run lint         # ESLint
+npm run typecheck    # tsc --noEmit
 npm run test         # Run the test suite once
+npm run test:unit    # Unit tests only (what the pre-push hook runs)
 npm run test:watch   # Run the test suite in watch mode
 npm run format       # Prettier (writes)
+npm run format:check # Prettier (CI check)
 ```
 
 ---
 
-## Keyboard shortcuts
-
-| Shortcut            | Action                                                                 |
-| ------------------- | ---------------------------------------------------------------------- |
-| `Cmd/Ctrl + K`      | Open the command palette (navigation, actions, settings)               |
-| `↑` / `↓`           | Move the highlighted command in the palette                            |
-| `Enter`             | Run the highlighted command                                            |
-| `Esc`               | Close the palette (or clear the query when one is typed)               |
-
-The palette is fully keyboard-operable — no mouse required. It traps focus while
-open and restores focus to the previously active element on close.
+npm run format:check # Prettier (CI check)
 
 ---
 
@@ -195,7 +188,7 @@ Notable milestones on the path to a working testnet client:
 | UI             | React 19, inline styles + Tailwind CSS v4        |
 | Font           | IBM Plex Mono                                    |
 | Language       | TypeScript 5                                     |
-| Linting        | ESLint + Prettier + Husky pre-commit             |
+| Linting        | ESLint + Prettier + Husky pre-commit / pre-push  |
 | Testing        | Vitest + Testing Library                         |
 | CI             | GitHub Actions (lint → typecheck → test → build) |
 | Target network | Stellar Testnet (Soroban)                        |
