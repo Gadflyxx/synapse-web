@@ -17,6 +17,7 @@
     "test": "vitest run --config vitest.config.mts",
     "test:unit": "vitest run --config vitest.config.mts",
     "test:watch": "vitest --config vitest.config.mts",
+    "test:flake-history": "node scripts/test/flake-history.mjs",
     "check:toolchain": "node scripts/check-toolchain.mjs",
     "e2e": "playwright test",
     "e2e:install": "playwright install",

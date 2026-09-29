@@ -192,6 +192,29 @@ npm run format           # Prettier (writes)
 npm run format:check     # Prettier (CI check)
 ```
 
+### Flaky tests
+
+`npm test` retries a failing test up to twice before giving up, so one unlucky
+run does not block unrelated work. A test that is still red after the last
+attempt fails the build exactly as it always did. A test that only goes green on
+a retry does not — it is reported in its own section and annotated on the PR as
+a warning, because it is a real bug sitting behind a retry.
+
+Every retry is recorded. A nightly job folds them into a rolling per-test flake
+rate, and a test that keeps needing retries has to either be fixed or carry a
+quarantine entry with a named owner, a tracking issue and an expiry date. There
+is no way to make a quarantine permanent, so "we will fix it later" has to be
+re-argued on a schedule.
+
+```bash
+FLAKE_RETRY=0 npm test                 # No retries: the real first-attempt pass rate
+npm run test:flake-history             # Fold the last run in and report offenders
+npm run test:flake-history -- --enforce # Exit non-zero on an unquarantined offender
+```
+
+Full details, including when to quarantine rather than fix, are in
+[`docs/testing/QUARANTINE.md`](docs/testing/QUARANTINE.md).
+
 ### Lighthouse reports
 
 `lighthouserc.js` + `.github/workflows/lighthouse.yml` audit all four tab routes
@@ -238,13 +261,11 @@ npm run test             # Run the test suite once
 npm run test:unit        # Unit tests only (what the pre-push hook runs)
 npm run test:watch       # Run the test suite in watch mode
 npm run check:toolchain  # Assert Node/npm match the pin in package.json
+npm run e2e:install      # One-time: download the Playwright browsers
+npm run e2e              # Playwright suite (all three engines)
 npm run format           # Prettier (writes)
 npm run format:check     # Prettier (CI check)
 ```
-
----
-
-
 
 ---
 
@@ -276,6 +297,19 @@ fails if the anchor or its `generated: abi-reference` front matter is removed.
 There is no SSG or Markdown dependency here. `scripts/docs/` is a small
 renderer, generator, and static server built on Node's standard library, so the
 docs build cannot break the app's dependency tree or its CI runtime.
+
+---
+
+## Adding a new tab
+
+1. Create `components/<name>/<NameTab.tsx>` and export a `<NameTab />` component.
+2. Add the tab key to the `TABS` array in `lib/tabs.ts`.
+3. Add a matching `{tab === "<name>" && <NameTab />}` render block in `Shell.tsx`.
+4. Wrap it in `<TabErrorBoundary>` like the existing tabs.
+
+`lib/tabs.ts` is the single source of truth: the `/[tab]` route segment
+prerenders one static page per entry, and `lighthouserc.js` audits the same
+list. `lib/tabs.test.ts` fails CI if the t
 
 ---
 
