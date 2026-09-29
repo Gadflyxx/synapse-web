@@ -84,6 +84,16 @@ export interface AbiEndpoint {
   stateChanging: boolean;
 }
 
+/**
+ * Where the published documentation site lives.
+ *
+ * The site is built from `docs/` by `scripts/docs/build.mjs` and deployed by
+ * `.github/workflows/docs.yml`. Deploying to a custom domain, or a fork, only
+ * needs this value changed — no code edit.
+ */
+export const DOCS_SITE_URL =
+  process.env.NEXT_PUBLIC_DOCS_URL ?? "https://synapse-bridgez.github.io/synapse-web";
+
 export const ABI_ENDPOINTS: AbiEndpoint[] = [
   {
     name: "initialize",

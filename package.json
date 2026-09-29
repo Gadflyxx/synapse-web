@@ -20,6 +20,8 @@
     "check:toolchain": "node scripts/check-toolchain.mjs",
     "e2e": "playwright test",
     "e2e:install": "playwright install",
+    "docs:build": "node scripts/docs/build.mjs",
+    "docs:dev": "node scripts/docs/build.mjs && node scripts/docs/serve.mjs",
     "prepare": "husky"
   },
   "lint-staged": {

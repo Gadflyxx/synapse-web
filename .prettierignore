@@ -2,6 +2,7 @@ node_modules
 .next
 out
 build
+docs-dist
 package-lock.json
 test-results
 playwright-report

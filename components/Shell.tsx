@@ -14,7 +14,7 @@ import { GuidedTour, useGuidedTour } from "@/components/onboarding/GuidedTour";
 import { CommandPalette, type Command } from "./command-palette/CommandPalette";
 import { SessionAuditPanel } from "@/components/wallet/SessionAuditPanel";
 import { ContractSwitcher } from "@/components/ui/ContractSwitcher";
-import { AMBER, BG1, BORDER, DIM, MONO, STATUS_META } from "@/lib/constants";
+import { AMBER, BG1, BORDER, DIM, DOCS_SITE_URL, MONO, STATUS_META } from "@/lib/constants";
 import { useSorobanStatus } from "@/lib/soroban/useSorobanStatus";
 import { useWallet } from "@/lib/wallet/WalletProvider";
 import { useToast } from "@/components/ui/Toast";
@@ -613,28 +613,43 @@ export function Shell({ initialTab = "dashboard" }: { initialTab?: Tab }) {
         <span style={{ fontSize: 9, color: DIM, letterSpacing: "0.1em" }}>
           {t("footer", { version: "0.1.0" })}
         </span>
-        <span
-          style={{
-            fontSize: 9,
-            letterSpacing: "0.1em",
-            color:
-              rpcStatus === "connected"
-                ? STATUS_META.COMPLETED.color
-                : rpcStatus === "error"
-                  ? STATUS_META.FAILED.color
-                  : DIM,
-          }}
-        >
-          ⬡ {t("rpc.label")}:{" "}
-          {rpcStatus === "connected"
-            ? lastEventAge
-              ? t("rpc.connectedWithEvent", { age: lastEventAge })
-              : t("rpc.connected")
-            : rpcStatus === "error"
-              ? rpcHealth.error
-                ? t("rpc.errorWithDetail", { detail: rpcHealth.error })
-                : t("rpc.error")
-              : t("rpc.connecting")}
+        <span style={{ display: "flex", alignItems: "center", gap: 18 }}>
+          <a
+            href={DOCS_SITE_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{
+              fontSize: 9,
+              letterSpacing: "0.1em",
+              color: DIM,
+              textDecoration: "none",
+            }}
+          >
+            DOCS ↗
+          </a>
+          <span
+            style={{
+              fontSize: 9,
+              letterSpacing: "0.1em",
+              color:
+                rpcStatus === "connected"
+                  ? STATUS_META.COMPLETED.color
+                  : rpcStatus === "error"
+                    ? STATUS_META.FAILED.color
+                    : DIM,
+            }}
+          >
+            ⬡ {t("rpc.label")}:{" "}
+            {rpcStatus === "connected"
+              ? lastEventAge
+                ? t("rpc.connectedWithEvent", { age: lastEventAge })
+                : t("rpc.connected")
+              : rpcStatus === "error"
+                ? rpcHealth.error
+                  ? t("rpc.errorWithDetail", { detail: rpcHealth.error })
+                  : t("rpc.error")
+                : t("rpc.connecting")}
+          </span>
         </span>
       </footer>
 
