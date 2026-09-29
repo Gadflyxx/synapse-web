@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { scValToNative } from "@stellar/stellar-sdk";
 import { Badge } from "@/components/ui/Badge";
 import { ActionButton } from "@/components/ui/ActionButton";
@@ -61,6 +61,8 @@ export function TxDetailModal({ tx, onClose }: TxDetailModalProps) {
   const { address, connect } = useWallet();
   const { contractId } = useSoroban();
   const { toast } = useToast();
+  const modalRef = useRef<HTMLDivElement>(null);
+  const previouslyFocusedRef = useRef<HTMLElement | null>(null);
 
   // Reconcile: once the poller-observed status matches the optimistic target,
   // drop the overlay so the confirmed state takes over.
@@ -70,6 +72,60 @@ export function TxDetailModal({ tx, onClose }: TxDetailModalProps) {
 
   const isStuck =
     tx.status === "PENDING" && Date.now() - new Date(tx.created_at).getTime() > STUCK_THRESHOLD_MS;
+
+  // Store activeElement and restore on close; focus modal on open
+  useEffect(() => {
+    previouslyFocusedRef.current = document.activeElement as HTMLElement | null;
+
+    if (modalRef.current) {
+      const focusable = modalRef.current.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+      );
+      if (focusable.length > 0) {
+        focusable[0].focus();
+      }
+    }
+
+    return () => {
+      previouslyFocusedRef.current?.focus();
+    };
+  }, []);
+
+  // Escape key & focus trapping
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        onClose();
+        return;
+      }
+
+      if (e.key === "Tab" && modalRef.current) {
+        const focusable = modalRef.current.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), [href], input:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+        );
+        if (focusable.length === 0) return;
+
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+
+        if (e.shiftKey) {
+          if (document.activeElement === first) {
+            e.preventDefault();
+            last.focus();
+          }
+        } else {
+          if (document.activeElement === last) {
+            e.preventDefault();
+            first.focus();
+          }
+        }
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
 
   async function runTxCall(method: string, extraArgs: string[] = []) {
     if (!contractId) {
@@ -182,6 +238,7 @@ export function TxDetailModal({ tx, onClose }: TxDetailModalProps) {
 
   return (
     <div
+      role="presentation"
       style={{
         position: "fixed",
         inset: 0,
@@ -194,6 +251,11 @@ export function TxDetailModal({ tx, onClose }: TxDetailModalProps) {
       onClick={onClose}
     >
       <div
+        ref={modalRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="tx-detail-title"
+        tabIndex={-1}
         onClick={(e) => e.stopPropagation()}
         className="animate-fade-in"
         style={{
@@ -204,6 +266,7 @@ export function TxDetailModal({ tx, onClose }: TxDetailModalProps) {
           overflowY: "auto",
           padding: 24,
           position: "relative",
+          outline: "none",
         }}
       >
         {/* Header */}
@@ -215,16 +278,19 @@ export function TxDetailModal({ tx, onClose }: TxDetailModalProps) {
             marginBottom: 16,
           }}
         >
-          <span
+          <h2
+            id="tx-detail-title"
             style={{
               fontFamily: MONO,
               fontSize: 11,
+              fontWeight: 700,
               color: AMBER,
               letterSpacing: "0.1em",
+              margin: 0,
             }}
           >
             TX DETAIL
-          </span>
+          </h2>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <Badge status={displayStatus} />
             {optimisticStatus !== null && !reconciled && (
@@ -258,14 +324,15 @@ export function TxDetailModal({ tx, onClose }: TxDetailModalProps) {
             </button>
             <button
               onClick={onClose}
-              aria-label="Close"
+              aria-label="Close transaction details"
               style={{
                 background: "none",
                 border: "none",
-                color: DIM,
+                color: "#bbb",
                 cursor: "pointer",
                 fontSize: 18,
                 lineHeight: 1,
+                padding: 4,
               }}
             >
               ✕
@@ -416,8 +483,10 @@ export function TxDetailModal({ tx, onClose }: TxDetailModalProps) {
               borderRadius: 4,
             }}
           >
-            <div
+            <label
+              htmlFor="tx-fail-reason-input"
               style={{
+                display: "block",
                 fontFamily: MONO,
                 fontSize: 10,
                 color: STATUS_META.FAILED.color,
@@ -427,8 +496,9 @@ export function TxDetailModal({ tx, onClose }: TxDetailModalProps) {
               }}
             >
               FAIL TRANSACTION REASON
-            </div>
+            </label>
             <textarea
+              id="tx-fail-reason-input"
               value={failReason}
               onChange={(e) => setFailReason(e.target.value)}
               placeholder="Enter failure reason..."
@@ -476,9 +546,12 @@ export function TxDetailModal({ tx, onClose }: TxDetailModalProps) {
                   setFailReason("");
                 }}
                 style={{
+                  flex: 1,
+                  padding: "9px 12px",
                   background: "none",
                   border: `1px solid ${BORDER}`,
                   color: DIM,
+                  cursor: "pointer",
                   fontFamily: MONO,
                   fontSize: 10,
                   padding: "8px 14px",
@@ -492,13 +565,17 @@ export function TxDetailModal({ tx, onClose }: TxDetailModalProps) {
         ) : (
           <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
             <ActionButton
-              label="PROCESS"
-              pending={pendingAction === "process_transaction"}
+              label={pendingAction === "process_transaction" ? "SUBMITTING…" : "PROCESS"}
+              color={STATUS_META.PROCESSING.color}
+              disabled={pendingAction !== null}
+              busy={pendingAction === "process_transaction"}
               onClick={() => runTxCall("process_transaction")}
             />
             <ActionButton
-              label="COMPLETE"
-              pending={pendingAction === "complete_transaction"}
+              label={pendingAction === "complete_transaction" ? "SUBMITTING…" : "COMPLETE"}
+              color={STATUS_META.COMPLETED.color}
+              disabled={pendingAction !== null}
+              busy={pendingAction === "complete_transaction"}
               onClick={() => runTxCall("complete_transaction")}
             />
             <ActionButton
@@ -509,6 +586,7 @@ export function TxDetailModal({ tx, onClose }: TxDetailModalProps) {
             <ActionButton
               label={pendingAction === "is_duplicate" ? "Checking…" : "Check Duplicate"}
               disabled={pendingAction === "is_duplicate"}
+              busy={pendingAction === "is_duplicate"}
               onClick={runIsDuplicate}
             />
             <ActionButton
