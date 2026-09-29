@@ -19,6 +19,9 @@ import { useSorobanStatus } from "@/lib/soroban/useSorobanStatus";
 import { useWallet } from "@/lib/wallet/WalletProvider";
 import { useToast } from "@/components/ui/Toast";
 import { shortId } from "@/lib/utils";
+import { useLocale, useTranslations } from "next-intl";
+import { useRouter } from "next/navigation";
+import { LOCALES, LOCALE_LABELS, type Locale } from "@/i18n/config";
 import { useWalletExtensionDetection } from "@/lib/wallet/detection";
 import { NoWalletGuidance } from "@/components/wallet/NoWalletGuidance";
 import { Profiled, ProfilerOverlay } from "@/lib/dev-tools/ProfilerOverlay";
@@ -108,6 +111,9 @@ export function Shell({ initialTab = "dashboard" }: { initialTab?: Tab }) {
   const connected = address !== null;
   const canSwitch = connected && accounts.length > 1;
   const { toast } = useToast();
+  const t = useTranslations("Shell");
+  const locale = useLocale();
+  const router = useRouter();
   const tour = useGuidedTour();
   const navRef = useRef<HTMLElement>(null);
 
@@ -151,12 +157,17 @@ export function Shell({ initialTab = "dashboard" }: { initialTab?: Tab }) {
   const prevAddress = useRef<string | null>(null);
   useEffect(() => {
     if (address && !prevAddress.current) {
-      toast(`Wallet connected: ${shortId(address)}`, "success");
+      toast(t("walletConnected", { address: shortId(address) }), "success");
     } else if (address && prevAddress.current && address !== prevAddress.current) {
       toast(`Active account: ${shortId(address)}`, "success");
     }
     prevAddress.current = address;
-  }, [address, toast]);
+  }, [address, toast, t]);
+
+  const onLocaleChange = (next: Locale) => {
+    document.cookie = `NEXT_LOCALE=${next};path=/;max-age=31536000;samesite=lax`;
+    router.refresh();
+  };
 
   // Keyboard navigation for tabs (WCAG 2.1 AA TabList Pattern)
   const handleTabKeyDown = (e: React.KeyboardEvent, index: number) => {
@@ -272,8 +283,34 @@ export function Shell({ initialTab = "dashboard" }: { initialTab?: Tab }) {
               border: `1px solid ${BORDER}`,
             }}
           >
-            TESTNET
+            {t("network")}
           </span>
+          <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <span style={{ position: "absolute", width: 1, height: 1, overflow: "hidden", clip: "rect(0 0 0 0)" }}>
+              {t("language")}
+            </span>
+            <select
+              aria-label={t("language")}
+              value={locale}
+              onChange={(e) => onLocaleChange(e.target.value as Locale)}
+              style={{
+                background: "transparent",
+                border: `1px solid ${BORDER}`,
+                color: DIM,
+                fontFamily: MONO,
+                fontSize: 10,
+                letterSpacing: "0.08em",
+                padding: "4px 6px",
+                cursor: "pointer",
+              }}
+            >
+              {LOCALES.map((l) => (
+                <option key={l} value={l} style={{ background: BG1, color: "#fff" }}>
+                  {LOCALE_LABELS[l]}
+                </option>
+              ))}
+            </select>
+          </label>
           <span
             aria-hidden="true"
             style={{
@@ -317,7 +354,17 @@ export function Shell({ initialTab = "dashboard" }: { initialTab?: Tab }) {
               e.currentTarget.style.borderColor = BORDER;
             }}
           >
-            {theme === "dark" ? "☀ light" : "☾ dark"}
+            {connecting ? t("connecting") : connected ? shortId(address) : t("connectWallet")}
+          </button>
+          <div style={{ position: "relative" }}>
+            <button
+              onClick={() => (connected ? (canSwitch ? setSwitcherOpen((o) => !o) : disconnect()) : connect())}
+              disabled={connecting}
+              aria-haspopup={canSwitch ? "listbox" : undefined}
+              aria-expanded={canSwitch ? switcherOpen : undefined}
+              style={{
+                padding: "7px 18px",
+                background: connected ? "transparent" : "rgba(245,166,3
           </button>
           <div style={{ position: "relative" }}>
             <button
@@ -454,7 +501,7 @@ export function Shell({ initialTab = "dashboard" }: { initialTab?: Tab }) {
       )}
 
       {/* ── Tab Bar ── */}
-      <nav ref={navRef} className="shell-nav" role="tablist" aria-label="Dashboard sections"
+      <nav ref={navRef} className="shell-nav" role="tablist" aria-label={t("sections")}
         data-tour="nav"
         style={{
           overflowX: isMobile ? "auto" : undefined,
@@ -489,13 +536,13 @@ export function Shell({ initialTab = "dashboard" }: { initialTab?: Tab }) {
               outlineOffset: "-2px",
             }}
             onMouseEnter={(e) => {
-              if (tab !== t) e.currentTarget.style.color = "var(--fg-hover)";
+              if (tab !== tabKey) e.currentTarget.style.color = "var(--fg-hover)";
             }}
             onMouseLeave={(e) => {
-              if (tab !== t) e.currentTarget.style.color = DIM;
+              if (tab !== tabKey) e.currentTarget.style.color = DIM;
             }}
           >
-            {t.toUpperCase()}
+              if (tab !== tabKey) e.currentTarget.style.color = "var(--fg-hover)";
           </button>
         ))}
       </nav>
@@ -509,33 +556,33 @@ export function Shell({ initialTab = "dashboard" }: { initialTab?: Tab }) {
         style={{ overflowX: "hidden" }}
       >
         {tab === "dashboard" && (
-          <TabErrorBoundary title="Dashboard tab error">
+          <TabErrorBoundary title={t("tabError", { tab: t("tabs.dashboard") })}>
             <Profiled id="DashboardTab">
               <DashboardTab />
             </Profiled>
           </TabErrorBoundary>
         )}
         {tab === "transactions" && (
-          <TabErrorBoundary title="Transactions tab error">
+          <TabErrorBoundary title={t("tabError", { tab: t("tabs.transactions") })}>
             <Profiled id="TransactionsTab">
               <TransactionsTab />
             </Profiled>
           </TabErrorBoundary>
         )}
         {tab === "analytics" && (
-          <TabErrorBoundary title="Analytics tab error">
+          <TabErrorBoundary title={t("tabError", { tab: t("tabs.analytics") })}>
             <AnalyticsTab />
           </TabErrorBoundary>
         )}
         {tab === "admin" && (
-          <TabErrorBoundary title="Admin tab error">
+          <TabErrorBoundary title={t("tabError", { tab: t("tabs.admin") })}>
             <Profiled id="AdminTab">
               <AdminTab />
             </Profiled>
           </TabErrorBoundary>
         )}
         {tab === "docs" && (
-          <TabErrorBoundary title="Docs tab error">
+          <TabErrorBoundary title={t("tabError", { tab: t("tabs.docs") })}>
             <Profiled id="DocsTab">
               <DocsTab />
             </Profiled>
@@ -557,7 +604,7 @@ export function Shell({ initialTab = "dashboard" }: { initialTab?: Tab }) {
         }}
       >
         <span style={{ fontSize: 9, color: DIM, letterSpacing: "0.1em" }}>
-          SYNAPSE CORE · v0.1.0 · TESTNET
+          {t("footer", { version: "0.1.0" })}
         </span>
         <span
           style={{
@@ -571,12 +618,16 @@ export function Shell({ initialTab = "dashboard" }: { initialTab?: Tab }) {
                   : DIM,
           }}
         >
-          ⬡ SOROBAN RPC:{" "}
+          ⬡ {t("rpc.label")}:{" "}
           {rpcStatus === "connected"
-            ? `connected${lastEventAge ? ` · last event ${lastEventAge}` : ""}`
+            ? lastEventAge
+              ? t("rpc.connectedWithEvent", { age: lastEventAge })
+              : t("rpc.connected")
             : rpcStatus === "error"
-              ? `error${rpcHealth.error ? `: ${rpcHealth.error}` : ""}`
-              : "connecting"}
+              ? rpcHealth.error
+                ? t("rpc.errorWithDetail", { detail: rpcHealth.error })
+                : t("rpc.error")
+              : t("rpc.connecting")}
         </span>
       </footer>
 

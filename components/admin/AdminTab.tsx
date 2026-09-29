@@ -36,6 +36,74 @@ interface ConfirmConfig {
   accentColor?: string;
 }
 
+/** Diff-style preview of the expected effect of a state-changing call. */
+interface PreviewState {
+  method: string;
+  /** Human-readable diff lines, e.g. "admin: GABC… → GXYZ…" */
+  diff: string[];
+  /** Estimated fee in stroops, when the simulation reports one. */
+  fee?: string;
+  /** Raw values captured for the eventual submission. */
+  values: Record<string, string>;
+}
+
+/** Per-item status for a bulk lifecycle run. */
+type BulkItemStatus = "pending" | "signing" | "success" | "failed" | "skipped";
+
+interface BulkItem {
+  id: string;
+  status: BulkItemStatus;
+  /** Human-readable reason for failed/skipped items. */
+  message?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function shortAddr(a: string): string {
+  const t = a.trim();
+  if (t.length <= 12) return t;
+  return `${t.slice(0, 6)}…${t.slice(-4)}`;
+}
+
+/**
+ * Build a diff-style preview for a known admin method from the submitted
+ * field values. Unknown methods fall back to a generic argument listing.
+ */
+function buildDiff(method: string, values: Record<string, string>): string[] {
+  switch (method) {
+    case "initialize":
+      return [
+        `admin: (unset) → ${shortAddr(values.admin ?? "")}`,
+        `relay_signer: (unset) → ${shortAddr(values.relay_signer ?? "")}`,
+      ];
+    case "transfer_admin":
+      return [`admin: (current) → ${shortAddr(values.new_admin ?? "")}`];
+    case "set_relay_signer":
+      return [`relay_signer: (current) → ${shortAddr(values.new_signer ?? "")}`];
+    default:
+      return Object.entries(values).map(([k, v]) => `${k}: → ${shortAddr(v)}`);
+  }
+}
+
+/**
+ * Determine whether a simulated lifecycle call is still eligible. A call that
+ * reverts because the transaction already reached a terminal state (completed
+ * or failed by someone else) is treated as ineligible so the bulk loop can
+ * skip it with a clear message instead of aborting the whole batch.
+ */
+function isIneligibleError(err: unknown): boolean {
+  const msg = (err instanceof Error ? err.message : String(err ?? "")).toLowerCase();
+  return (
+    msg.includes("already") ||
+    msg.includes("completed") ||
+    msg.includes("failed") ||
+    msg.includes("invalid state") ||
+    msg.includes("not pending")
+  );
+}
+
 // ---------------------------------------------------------------------------
 // AdminCard
 // ---------------------------------------------------------------------------
@@ -206,6 +274,174 @@ function AdminCard({
 }
 
 // ---------------------------------------------------------------------------
+// PreviewDialog
+// ---------------------------------------------------------------------------
+
+function PreviewDialog({
+  preview,
+  accentColor,
+  onConfirm,
+  onCancel,
+}: {
+  preview: PreviewState;
+  accentColor: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(0,0,0,0.72)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        zIndex: 1000,
+        padding: 16,
+      }}
+    >
+      <div
+        style={{
+          background: "#0B0E14",
+          border: `1px solid ${accentColor}`,
+          maxWidth: 520,
+          width: "100%",
+          padding: 20,
+        }}
+      >
+        <div
+          style={{
+            fontSize: 11,
+            fontFamily: MONO,
+            letterSpacing: "0.08em",
+            color: accentColor,
+            marginBottom: 12,
+          }}
+        >
+          SIMULATION PREVIEW — {preview.method}()
+        </div>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 14 }}>
+          {preview.diff.map((line, i) => (
+            <div
+              key={i}
+              style={{
+                fontFamily: MONO,
+                fontSize: 12,
+                color: "#E6E6E6",
+                background: "rgba(255,255,255,0.03)",
+                border: `1px solid ${BORDER}`,
+                padding: "6px 10px",
+              }}
+            >
+              {line}
+            </div>
+          ))}
+        </div>
+
+        <div
+          style={{
+            fontFamily: MONO,
+            fontSize: 11,
+            color: DIM,
+            marginBottom: 18,
+          }}
+        >
+          estimated fee: {preview.fee ?? "unavailable"}
+        </div>
+
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
+          <ActionButton label="CANCEL" color={DIM} onClick={onCancel} />
+          <ActionButton label="CONFIRM & SIGN →" color={accentColor} onClick={onConfirm} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// BulkActionBar
+// ---------------------------------------------------------------------------
+
+const BULK_STATUS_META: Record<BulkItemStatus, { label: string; color: string }> = {
+  pending: { label: "PENDING", color: DIM },
+  signing: { label: "SIGNING…", color: AMBER },
+  success: { label: "SUCCESS", color: "#3FB950" },
+  failed: { label: "FAILED", color: "#F85149" },
+  skipped: { label: "SKIPPED", color: "#D29922" },
+};
+
+function BulkActionBar({
+  items,
+  running,
+  onRun,
+  onCancel,
+  onReset,
+}: {
+  items: BulkItem[];
+  running: boolean;
+  onRun: () => void;
+  onCancel: () => void;
+  onReset: () => void;
+}) {
+  const done = items.filter((i) => i.status !== "pending" && i.status !== "signing").length;
+  const finished = !running && done > 0;
+
+  return (
+    <Panel title="BULK LIFECYCLE ACTIONS">
+      <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 14 }}>
+        {items.map((item) => {
+          const meta = BULK_STATUS_META[item.status];
+          return (
+            <div
+              key={item.id}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 10,
+                fontFamily: MONO,
+                fontSize: 12,
+                border: `1px solid ${BORDER}`,
+                padding: "6px 10px",
+              }}
+            >
+              <span style={{ color: "#E6E6E6" }}>{shortId(item.id)}</span>
+              <span style={{ color: meta.color, letterSpacing: "0.06em" }}>
+                {meta.label}
+                {item.message ? ` — ${item.message}` : ""}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
+        {running ? (
+          <ActionButton label="CANCEL BATCH" color={DIM} onClick={onCancel} />
+        ) : finished ? (
+          <ActionButton label="RESET" color={DIM} onClick={onReset} />
+        ) : (
+          <ActionButton
+            label={`RUN BULK ACTION (${items.length})`}
+            color={AMBER}
+            onClick={onRun}
+            disabled={items.length === 0}
+          />
+        )}
+      </div>
+      <SorobanTip>
+        Each selected transaction is signed and submitted individually — no signature
+        batching. Cancelling mid-batch leaves completed items applied and the rest pending.
+      </SorobanTip>
+    </Panel>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // AdminTab
 // ---------------------------------------------------------------------------
 
@@ -213,8 +449,27 @@ export function AdminTab() {
   const { address, connect, mode } = useWallet();
   const { contractId } = useSoroban();
   const { toast } = useToast();
+  const [preview, setPreview] = useState<PreviewState | null>(null);
+  const [simulating, setSimulating] = useState(false);
+
+  // Bulk lifecycle state -----------------------------------------------------
+  const [selected, setSelected] = useState<string[]>([]);
+  const [bulkItems, setBulkItems] = useState<BulkItem[]>([]);
+  const [bulkRunning, setBulkRunning] = useState(false);
+  const cancelRef = useState<{ current: boolean }>(() => ({ current: false }))[0];
 
   const isWatchOnly = mode === "watch";
+
+  function toggleSelected(id: string) {
+    setSelected((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  }
+
+  function resetBulk() {
+    setSelected([]);
+    setBulkItems([]);
+  }
 
   async function runAdminCall(method: string, addresses: string[]) {
     if (isWatchOnly) {
@@ -225,26 +480,141 @@ export function AdminTab() {
       toast("No contract ID is currently selected or configured", "error");
       return;
     }
-      return;
-    }
+  }
+
+  /**
+   * Sequentially sign-and-submit the same lifecycle action across every
+   * selected transaction. Each item is simulated first so an ineligible
+   * transaction (already completed/failed by someone else) is skipped with a
+   * clear message rather than aborting the batch. Cancelling mid-batch stops
+   * the loop and leaves the remaining items in their pending state.
+   */
+  async function runBulkAction() {
     if (!address) {
-      toast("Connect a wallet before submitting admin transactions", "error");
       await connect();
       return;
     }
-    if (addresses.some((a) => !a.trim())) {
-      toast("All address fields are required", "error");
+    const ids = [...selected];
+    setBulkItems(ids.map((id) => ({ id, status: "pending" })));
+    setBulkRunning(true);
+    cancelRef.current = false;
+
+    for (const id of ids) {
+      if (cancelRef.current) break;
+
+      setBulkItems((prev) =>
+        prev.map((it) => (it.id === id ? { ...it, status: "signing" } : it))
+      );
+
+      try {
+        // Simulate first to detect ineligibility before requesting a signature.
+        await simulateContractCall({
+          contractId: CONTRACT_ID ?? "",
+          method: "fail_transaction",
+          args: [addressArg(id)],
+          source: address,
+        });
+
+        await invokeContract({
+          contractId: CONTRACT_ID ?? "",
+          method: "fail_transaction",
+          args: [addressArg(id)],
+          source: address,
+        });
+
+        setBulkItems((prev) =>
+          prev.map((it) => (it.id === id ? { ...it, status: "success" } : it))
+        );
+      } catch (err) {
+        const ineligible = isIneligibleError(err);
+        setBulkItems((prev) =>
+          prev.map((it) =>
+            it.id === id
+              ? {
+                  ...it,
+                  status: ineligible ? "skipped" : "failed",
+                  message: ineligible
+                    ? "no longer eligible (already completed/failed)"
+                    : err instanceof Error
+                      ? err.message
+                      : "submission failed",
+                }
+              : it
+          )
+        );
+      }
+    }
+
+    setBulkRunning(false);
+    toast({ message: "Bulk lifecycle run finished", tone: "info" });
+  }
+
+  function cancelBulk() {
+    cancelRef.current = true;
+    setBulkRunning(false);
+  }
+
+  // -------------------------------------------------------------------------
+
+  /**
+   * Simulate the state-changing call first. On success, surface a diff-style
+   * preview + estimated fee and require explicit confirmation before the real
+   * signed submission. On revert, block submission and show the reason.
+   */
+  async function simulateAndPreview(
+    method: string,
+    values: Record<string, string>,
+    args: unknown[]
+  ) {
+    if (!address) {
+      await connect();
       return;
     }
+    setSimulating(true);
     try {
-      const args = addresses.map(addressArg);
-      const result = await invokeContract(RPC_URL, contractId, address, method, args);
-      toast(
-        `${method}() ${result.status === "SUCCESS" ? "succeeded" : "failed"} · tx ${shortId(result.hash)}`,
-        result.status === "SUCCESS" ? "success" : "error"
-      );
+      const sim = await simulateContractCall({
+        contractId: CONTRACT_ID ?? "",
+        method,
+        args,
+        source: address,
+      });
+      const fee =
+        sim && typeof sim === "object" && "minResourceFee" in sim
+          ? String((sim as { minResourceFee?: unknown }).minResourceFee ?? "")
+          : undefined;
+      setPreview({
+        method,
+        diff: buildDiff(method, values),
+        fee: fee || undefined,
+        values,
+      });
     } catch (err) {
-      toast(err instanceof Error ? err.message : `${method}() failed`, "error");
+      toast({
+        message: `Simulation reverted: ${err instanceof Error ? err.message : String(err)}`,
+        tone: "error",
+      });
+    } finally {
+      setSimulating(false);
+    }
+  }
+
+  async function submitPreviewed() {
+    if (!preview) return;
+    const { method, values } = preview;
+    setPreview(null);
+    try {
+      await invokeContract({
+        contractId: CONTRACT_ID ?? "",
+        method,
+        args: Object.values(values).map((v) => addressArg(v)),
+        source: address ?? "",
+      });
+      toast({ message: `${method} submitted`, tone: "success" });
+    } catch (err) {
+      toast({
+        message: `${method} failed: ${err instanceof Error ? err.message : String(err)}`,
+        tone: "error",
+      });
     }
   }
 
@@ -263,7 +633,27 @@ export function AdminTab() {
       const value = simulated.result ? scValToNative(simulated.result.retval) : undefined;
       toast(`${method}() → ${JSON.stringify(value)}`, "info");
     } catch (err) {
-      toast(err instanceof Error ? err.message : `${method}() failed`, "error");
+      toast({
+        message: `Simulation reverted: ${err instanceof Error ? err.message : String(err)}`,
+        tone: "error",
+      });
+    } finally {
+      setSimulating(false);
+    }
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }} className="animate-fade-in">
+      {/* Warning banner */}
+      <div
+        style={{
+          background: "rgba(239,83,80,0.06)",
+          border: "1px s
+    } catch (err) {
+      toast({
+        message: `${method} failed: ${err instanceof Error ? err.message : String(err)}`,
+        tone: "error",
+      });
     }
   }
 
@@ -314,20 +704,38 @@ export function AdminTab() {
 
       {/* Initialize */}
       <AdminCard
-        title="INITIALIZE CONTRACT"
-        tip="initialize(admin: Address, relay_signer: Address) — one-time bootstrap; reverts if already initialized"
+        title="INITIALIZE"
+        tip="Sets the initial admin and relay signer. Can only be called once."
         fields={[
-          { label: "admin", key: "admin", placeholder: "G… admin address" },
-          { label: "relay_signer", key: "relay_signer", placeholder: "G… relay signer address" },
+          { label: "Admin address", key: "admin", placeholder: "G…" },
+          { label: "Relay signer", key: "relay_signer", placeholder: "G…" },
+        ]}
+        btnLabel="INITIALIZE"
+        confirm={{
+          title: "Initialize contract",
+          message: "This permanently sets the admin and relay signer.",
+        }}
+        onSub
+      <AdminCard
+        title="INITIALIZE"
+        tip="Sets the initial admin and relay signer. Can only be called once."
+        fields={[
+          { label: "Admin address", key: "admin", placeholder: "G…" },
+          { label: "Relay signer", key: "relay_signer", placeholder: "G…" },
         ]}
         schema={ADMIN_SCHEMAS.initialize}
         btnLabel="INITIALIZE →"
         draftKey="admin:initialize"
         disabled={isWatchOnly}
-        onSubmit={(v) => runAdminCall("initialize", [v.admin ?? "", v.relay_signer ?? ""])}
+        confirm={{
+          title: "Initialize contract",
+          message: "This permanently sets the admin and relay signer.",
+        }}
+        onSubmit={(v) =>
+          simulateAndPreview("initialize", [v.admin ?? "", v.relay_signer ?? ""])
+        }
       />
 
-      {/* Transfer admin — requires retype confirmation */}
       <AdminCard
         title="TRANSFER ADMIN"
         tip="transfer_admin(new_admin: Address) — caller must be current admin; irreversible if wrong address"
@@ -338,18 +746,29 @@ export function AdminTab() {
         draftKey="admin:transfer_admin"
         disabled={isWatchOnly}
         confirm={{
-          title: "TRANSFER ADMIN — IRREVERSIBLE",
-          message:
-            "You are transferring admin rights to a new address. " +
-            "If the address is wrong you will permanently lose access to all admin functions. " +
-            "Retype the destination address exactly to continue.",
+          title: "Transfer admin",
+          message: "You will lose admin authority after this call.",
           retypeKey: "new_admin",
-          accentColor: STATUS_META.FAILED.color,
         }}
-        onSubmit={(v) => runAdminCall("transfer_admin", [v.new_admin ?? ""])}
+        onSubmit={(vals) =>
+          simulateAndPreview("transfer_admin", vals, [addressArg(vals.new_admin)])
+        }
       />
 
-      {/* Set relay signer — gated confirm (no retype required) */}
+      <AdminCard
+        title="SET RELAY SIGNER"
+        tip="Updates the relay signer authorized to submit lifecycle actions."
+        fields={[{ label: "New signer", key: "new_signer",
+        confirm={{
+          title: "Transfer admin",
+          message: "You will lose admin authority after this call.",
+          retypeKey: "new_admin",
+        }}
+        onSubmit={(vals) =>
+          simulateAndPreview("transfer_admin", vals, [addressArg(vals.new_admin)])
+        }
+      />
+
       <AdminCard
         title="SET RELAY SIGNER"
         tip="set_relay_signer(new_signer: Address) — caller must be current admin"
@@ -364,7 +783,6 @@ export function AdminTab() {
           title: "SET RELAY SIGNER",
           message:
             "This updates the relay signer authorized to submit relayed transactions. " +
-            "Confirm the new signer address is correct before continuing.",
             "Confirm the new signer address is correct before continuing.",
           accentColor: STATUS_META.PROCESSING.color,
         }}
@@ -390,22 +808,53 @@ export function AdminTab() {
             onClick={() => runDiagnostic("get_relay_signer")}
           />
         </div>
-          <ActionButton
-            label="GET ADMIN →"
-            color={DIM}
-            onClick={() => runDiagnostic("get_admin")}
-          />
-          <ActionButton
-            label="GET RELAY SIGNER"
-            color={BORDER}
-            onClick={() => runDiagnostic("get_relay_signer")}
-          />
-        </div>
         <SorobanTip>
           Read-only simulations. These do not require signing and remain available in watch-only
           mode. No transaction is submitted and no fees are spent.
         </SorobanTip>
       </Panel>
+
+      {bulkItems.length > 0 && (
+        <BulkActionBar
+          items={bulkItems}
+          running={bulkRunning}
+          onRun={runBulkAction}
+          onCancel={cancelBulk}
+          onReset={resetBulk}
+        />
+      )}
+
+      {preview && (
+        <PreviewDialog
+          preview={preview}
+          accentColor={AMBER}
+          onConfirm={submitPreviewed}
+          onCancel={() => setPreview(null)}
+        />
+      )}
+    </div>
+  );
+}
+      </Panel>
+
+      {bulkItems.length > 0 && (
+        <BulkActionBar
+          items={bulkItems}
+          running={bulkRunning}
+          onRun={runBulkAction}
+          onCancel={cancelBulk}
+          onReset={resetBulk}
+        />
+      )}
+
+      {preview && (
+        <PreviewDialog
+          preview={preview}
+          accentColor={AMBER}
+          onConfirm={submitPreviewed}
+          onCancel={() => setPreview(null)}
+        />
+      )}
     </div>
   );
 }
