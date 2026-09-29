@@ -10,6 +10,7 @@ import { AnalyticsTab } from "./analytics/AnalyticsTab";
 import { NotificationCenter } from "./notifications/NotificationCenter";
 import { NotificationProvider } from "@/lib/notifications/NotificationStore";
 import { TabErrorBoundary } from "@/components/ui/TabErrorBoundary";
+import { GuidedTour, useGuidedTour } from "@/components/onboarding/GuidedTour";
 import { CommandPalette, type Command } from "./command-palette/CommandPalette";
 import { SessionAuditPanel } from "@/components/wallet/SessionAuditPanel";
 import { ContractSwitcher } from "@/components/ui/ContractSwitcher";
@@ -107,6 +108,7 @@ export function Shell({ initialTab = "dashboard" }: { initialTab?: Tab }) {
   const connected = address !== null;
   const canSwitch = connected && accounts.length > 1;
   const { toast } = useToast();
+  const tour = useGuidedTour();
   const navRef = useRef<HTMLElement>(null);
 
   // Sync tab from URL hash if present
@@ -243,6 +245,24 @@ export function Shell({ initialTab = "dashboard" }: { initialTab?: Tab }) {
           }}
         >
           <ContractSwitcher />
+          <button
+            onClick={tour.start}
+            aria-label="Start guided tour"
+            style={{
+              background: "none",
+              border: "none",
+              color: DIM,
+              fontFamily: MONO,
+              fontSize: 10,
+              letterSpacing: "0.1em",
+              cursor: "pointer",
+              padding: 0,
+            }}
+            onMouseEnter={(e) => (e.currentTarget.style.color = AMBER)}
+            onMouseLeave={(e) => (e.currentTarget.style.color = DIM)}
+          >
+            ? tour
+          </button>
           <span
             style={{
               fontSize: 9,
@@ -269,7 +289,9 @@ export function Shell({ initialTab = "dashboard" }: { initialTab?: Tab }) {
           {connected && <SessionAuditPanel />}
           <NotificationCenter />
           <button
-            onClick={() => setTheme((t) => (t === "dark" ? "light" : "dark"))}
+            data-tour="wallet"
+            onClick={() => (connected ? disconnect() : connect())}
+            disabled={connecting}
             aria-label={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
             title={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
             style={{
@@ -433,6 +455,7 @@ export function Shell({ initialTab = "dashboard" }: { initialTab?: Tab }) {
 
       {/* ── Tab Bar ── */}
       <nav ref={navRef} className="shell-nav" role="tablist" aria-label="Dashboard sections"
+        data-tour="nav"
         style={{
           overflowX: isMobile ? "auto" : undefined,
           WebkitOverflowScrolling: "touch",
@@ -446,6 +469,7 @@ export function Shell({ initialTab = "dashboard" }: { initialTab?: Tab }) {
             aria-selected={tab === t}
             aria-controls={`tabpanel-${t}`}
             tabIndex={tab === t ? 0 : -1}
+            data-tour={t}
             onClick={() => handleTabSelect(t)}
             onKeyDown={(e) => handleTabKeyDown(e, idx)}
             style={{
@@ -556,6 +580,8 @@ export function Shell({ initialTab = "dashboard" }: { initialTab?: Tab }) {
         </span>
       </footer>
 
+      {/* ── Guided Tour ── */}
+      <GuidedTour open={tour.open} onClose={tour.close} />
       <CommandPalette
         open={paletteOpen}
         onClose={() => setPaletteOpen(false)}

@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { scValToNative } from "@stellar/stellar-sdk";
 import { TxTable } from "./TxTable";
@@ -30,11 +30,52 @@ const RPC_URL = process.env.NEXT_PUBLIC_SOROBAN_RPC_URL ?? "https://soroban-test
 const CONTRACT_ID = process.env.NEXT_PUBLIC_CONTRACT_ID;
 const MAX_COMPARE = 4;
 
+const SEARCH_DEBOUNCE_MS = 200;
+
+/**
+ * Score a single transaction against a fuzzy query across tx id, caller
+ * address, and status. Returns 0 when there is no match, otherwise a
+ * relevance score (higher = better).
+ */
+function scoreTx(tx: Transaction, query: string): number {
+  const q = query.trim().toLowerCase();
+  if (!q) return 0;
+  const fields: Array<{ value: string; weight: number }> = [
+    { value: tx.id, weight: 3 },
+    { value: tx.caller ?? "", weight: 2 },
+    { value: tx.status, weight: 1 },
+  ];
+  let best = 0;
+  for (const { value, weight } of fields) {
+    const hay = value.toLowerCase();
+    if (!hay) continue;
+    let score = 0;
+    if (hay === q) {
+      score = 100;
+    } else if (hay.startsWith(q)) {
+      score = 80;
+    } else if (hay.includes(q)) {
+      score = 60;
+    } else {
+      // subsequence (fuzzy) match: all query chars appear in order
+      let qi = 0;
+      for (let i = 0; i < hay.length && qi < q.length; i++) {
+        if (hay[i] === q[qi]) qi++;
+      }
+      if (qi === q.length) score = 30;
+    }
+    if (score > 0) best = Math.max(best, score * weight);
+  }
+  return best;
+}
+
 export function TransactionsTab() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [filter, setFilter] = useState("");
+  const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [status, setStatus] = useState("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
@@ -51,6 +92,11 @@ export function TransactionsTab() {
   const { address, connect } = useWallet();
   const { contractId } = useSoroban();
   const { toast } = useToast();
+
+  useEffect(() => {
+    const handle = setTimeout(() => setDebouncedSearch(search), SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(handle);
+  }, [search]);
 
   // Hydrate filter + selected transaction from the URL query string.
   useEffect(() => {
@@ -225,19 +271,29 @@ export function TransactionsTab() {
     }
   }
 
-  const filtered = txs.filter((t) => {
-    const matchesSearch =
-      !filter ||
-      t.id.includes(filter) ||
-      t.status.includes(filter.toUpperCase()) ||
-      t.asset.includes(filter.toUpperCase()) ||
-      t.memo.includes(filter);
-    const matchesStatus = !status || t.status === status.toUpperCase();
-    const ts = new Date(t.created_at ?? 0).getTime();
-    const matchesFrom = !dateFrom || ts >= new Date(dateFrom).getTime();
-    const matchesTo = !dateTo || ts <= new Date(dateTo).getTime();
-    return matchesSearch && matchesStatus && matchesFrom && matchesTo;
-  });
+  const filtered = useMemo(() => {
+    const q = debouncedSearch.trim();
+    const base = q
+      ? txs
+          .map((t) => ({ t, score: scoreTx(t, q) }))
+          .filter(({ score }) => score > 0)
+          .sort((a, b) => b.score - a.score)
+          .map(({ t }) => t)
+      : txs;
+    return base.filter((t) => {
+      const matchesSearch =
+        !filter ||
+        t.id.includes(filter) ||
+        t.status.includes(filter.toUpperCase()) ||
+        t.asset.includes(filter.toUpperCase()) ||
+        t.memo.includes(filter);
+      const matchesStatus = !status || t.status === status.toUpperCase();
+      const ts = new Date(t.created_at ?? 0).getTime();
+      const matchesFrom = !dateFrom || ts >= new Date(dateFrom).getTime();
+      const matchesTo = !dateTo || ts <= new Date(dateTo).getTime();
+      return matchesSearch && matchesStatus && matchesFrom && matchesTo;
+    });
+  }, [txs, debouncedSearch, filter, status, dateFrom, dateTo]);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }} className="animate-fade-in">
@@ -383,6 +439,26 @@ export function TransactionsTab() {
 
       {/* Full table */}
       <Panel title={`ALL TRANSACTIONS (${filtered.length})`}>
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="search tx_id · caller · status…"
+          aria-label="Search transactions"
+          style={{
+            width: "100%",
+            boxSizing: "border-box",
+            marginBottom: 10,
+            background: BG3,
+            border: `1px solid ${BORDER}`,
+            color: "#eee",
+            fontFamily: MONO,
+            fontSize: 12,
+            padding: "9px 12px",
+            outline: "none",
+          }}
+          onFocus={(e) => (e.target.style.borderColor = "rgba(245,166,35,0.45)")}
+          onBlur={(e) => (e.target.style.borderColor = BORDER)}
+        />
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 6, marginBottom: 10 }}>
           <button
             onClick={() => downloadBlob(toCsv(filtered), `transactions-${Date.now()}.csv`, "text/csv;charset=utf-8;")}

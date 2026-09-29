@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { StatCards } from "./StatCards";
 import { Pipeline } from "./Pipeline";
 import { ContractInfoPanel } from "./ContractInfoPanel";
+import { HealthWidget } from "./HealthWidget";
 import { RecentTxTable } from "./RecentTxTable";
 import { TxDetailModal } from "@/components/transactions/TxDetailModal";
 import { useLiveTransactions } from "@/lib/soroban/useLiveTransactions";
@@ -84,7 +85,6 @@ export function DashboardTab() {
       className="animate-fade-in"
     >
       {selected && <TxDetailModal tx={selected} onClose={() => setSelected(null)} />}
-
       <div
         className="dashboard-layout-controls"
         style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}
