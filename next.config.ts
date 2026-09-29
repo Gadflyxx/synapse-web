@@ -1,5 +1,22 @@
 import type { NextConfig } from "next";
 
+import type { NextConfig } from "next";
+import { securityHeaders } from "./lib/security/csp";
+
+/**
+ * Security headers are applied to every route from one place rather than per
+ * layout, so a new route cannot ship without them.
+ *
+ * `lib/security/csp.ts` owns the policy and the reasoning behind each
+ * directive; this file only wires the environment into it.
+ *
+ * Note that `process.env.NODE_ENV` is inlined by Next at build time, and every
+ * `NEXT_PUBLIC_*` value is inlined into the client bundle. The RPC origin in
+ * the policy is therefore a build-time decision: changing
+ * `NEXT_PUBLIC_SOROBAN_RPC_URL` requires a redeploy for the header to change
+ * with it.
+ */
+
 /**
  * `/_next/static/**` is Next.js build output and every file under it is
  * content-hashed (e.g. `/_next/static/chunks/00k5.dx24ut2p.js`,
@@ -37,6 +54,13 @@ const nextConfig: NextConfig = {
   compress: true,
   poweredByHeader: false,
   async headers() {
+    const headers = securityHeaders({
+      NODE_ENV: process.env.NODE_ENV,
+      NEXT_PUBLIC_SOROBAN_RPC_URL: process.env.NEXT_PUBLIC_SOROBAN_RPC_URL,
+      NEXT_PUBLIC_CSP_CONNECT_SRC: process.env.NEXT_PUBLIC_CSP_CONNECT_SRC,
+      NEXT_PUBLIC_CSP_ALLOW_ANY_HTTPS: process.env.NEXT_PUBLIC_CSP_ALLOW_ANY_HTTPS,
+    });
+
     return [
       // ORDER MATTERS — read before editing.
       //
@@ -47,9 +71,13 @@ const nextConfig: NextConfig = {
       // listed after it, otherwise the catch-all would clobber it and every chunk
       // would be revalidated on each visit.
       {
-        // HTML shell + unversioned `public/` files: always revalidate.
+        // Covers every page and every asset, including routes added later.
         source: ALL_PATHS_SOURCE,
-        headers: [{ key: "Cache-Control", value: REVALIDATE_CACHE_CONTROL }],
+        headers: [
+          ...headers.map(({ key, value }) => ({ key, value })),
+          // HTML shell + unversioned `public/` files: always revalidate.
+          { key: "Cache-Control", value: REVALIDATE_CACHE_CONTROL },
+        ],
       },
       {
         // Content-hashed build output: cache forever.
