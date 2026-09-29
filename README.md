@@ -123,6 +123,17 @@ commits by semantic-release on merge to `main`. See
 [docs/release-process.md](docs/release-process.md) for the commit format, the
 pre-1.0 versioning rules, and the one-time tag step the repository still needs.
 
+### Health and uptime monitoring
+
+`GET /api/health` reports the dashboard and the Soroban RPC endpoint as two
+independent states, because an RPC provider outage and a deployment outage need
+different responses. `GET` returns 200 while the app is serving, so a provider
+blip is never mistaken for the site being down. `.github/workflows/uptime-check.yml`
+probes it every 10 minutes and escalates only after 3 consecutive failures.
+
+See [docs/uptime-monitoring.md](docs/uptime-monitoring.md) for the alerting
+setup and how to verify a deliberate outage.
+
 ## Deployments and performance
 
 GitHub Actions runs lint, typecheck, tests, build, and the initial-route JavaScript budget before deployment. PRs from branches in this repository receive an automatically updated Vercel preview comment; external-fork PRs run the quality gates but do not receive deployment credentials or an automated preview. Preview builds use Stellar Testnet and an empty contract ID, so they render mock data by default.
