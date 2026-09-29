@@ -133,6 +133,11 @@ export function TxDetailModal({ tx, onClose }: TxDetailModalProps) {
     onEscape: onClose,
   });
 
+  // Shared useFocusTrap hook for overlay focus trap & escape handling
+  useFocusTrap(modalRef, {
+    onEscape: onClose,
+  });
+
   async function runTxCall(method: string, extraArgs: string[] = []) {
     if (!contractId) {
       toast("No contract ID is currently selected or configured", "error");

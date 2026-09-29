@@ -122,7 +122,6 @@ export function Shell({ initialTab = "dashboard" }: { initialTab?: Tab }) {
       window.location.hash = selectedTab;
     }
   };
-
   useEffect(() => {
     setTheme(getPreferredTheme());
   }, []);
@@ -177,6 +176,20 @@ export function Shell({ initialTab = "dashboard" }: { initialTab?: Tab }) {
   };
 
     handleTabSelect(TABS[nextIndex]);
+    const buttons = navRef.current?.querySelectorAll<HTMLButtonElement>('[role="tab"]');
+    buttons?.[nextIndex]?.focus();
+  };
+
+  const handleConnectClick = () => {
+    if (connected) {
+      disconnect();
+    } else if (checked && !hasAny) {
+      setShowGuidance(true);
+    } else {
+      connect();
+    }
+  };
+
   return (
     <NotificationProvider>
     <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
