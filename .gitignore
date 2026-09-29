@@ -20,6 +20,12 @@
 # lighthouse ci
 /.lighthouseci
 
+# playwright (e2e/smoke suites)
+/playwright-report
+/test-results
+/blob-report
+/playwright/.cache
+
 # next.js
 /.next/
 /out/

@@ -85,6 +85,9 @@ synapse-web/
 ├── scripts/
 │   └── docs/                # Markdown renderer, ABI generator, site builder
 ├── e2e/                     # Playwright smoke + runtime tests (PR #174)
+│   └── smoke.spec.ts        # Staging smoke suite (Playwright) — see docs/
+├── docs/
+│   └── staging-smoke-tests.md
 ├── playwright.config.ts
 └── public/                 # Static assets
 ```
@@ -194,9 +197,13 @@ npm run test:watch       # Run the test suite in watch mode
 npm run check:toolchain  # Assert Node/npm match the pin in package.json
 npm run e2e:install      # One-time: download the Playwright browsers
 npm run e2e              # Playwright suite (all three engines)
+npm run test:e2e:smoke   # Playwright staging smoke suite only
 npm run format           # Prettier (writes)
 npm run format:check     # Prettier (CI check)
 ```
+
+Unit tests are Vitest; `e2e/` is Playwright. Vitest excludes `e2e/` so the two
+runners never collect each other's specs.
 
 ### Flaky tests
 
@@ -231,6 +238,19 @@ deltas against the merge base. Locally, against a running dev server:
 npx @lhci/cli@0.14.0 autorun --config=lighthouserc.js
 node scripts/lighthouse-report.mjs .lighthouseci/manifest.json "" .lighthouseci/report
 ```
+
+---
+
+## Staging smoke tests
+
+`npm run test:e2e:smoke` runs a narrow Playwright suite against an
+**already-deployed** URL to confirm the running app is healthy — the check a
+build cannot make. `.github/workflows/smoke.yml` runs it after every staging
+deploy, and its `promote-gate` job is the required status check that blocks
+promotion to production when a smoke test fails.
+
+See [docs/staging-smoke-tests.md](docs/staging-smoke-tests.md) for what is
+covered, the retry strategy, and how to wire up the gate.
 
 ---
 
