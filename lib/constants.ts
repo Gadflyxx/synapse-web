@@ -6,24 +6,28 @@ export const STATUS_META: Record<TxStatus, StatusMeta> = {
     bg: "var(--status-pending-bg)",
     glow: "var(--status-pending-glow)",
     label: "PENDING",
+    symbol: "!",
   },
   PROCESSING: {
     color: "var(--status-processing)",
     bg: "var(--status-processing-bg)",
     glow: "var(--status-processing-glow)",
     label: "PROCESSING",
+    symbol: "~",
   },
   COMPLETED: {
     color: "var(--status-completed)",
     bg: "var(--status-completed-bg)",
     glow: "var(--status-completed-glow)",
     label: "COMPLETED",
+    symbol: "+",
   },
   FAILED: {
     color: "var(--status-failed)",
     bg: "var(--status-failed-bg)",
     glow: "var(--status-failed-glow)",
     label: "FAILED",
+    symbol: "x",
   },
 };
 
