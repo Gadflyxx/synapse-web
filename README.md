@@ -121,6 +121,17 @@ The [performance history](/performance) page charts Lighthouse score, LCP, and i
 
 ---
 
+## CI gates and deploys
+
+| Gate / pipeline            | Workflow                                  | Docs                                                           |
+| -------------------------- | ----------------------------------------- | -------------------------------------------------------------- |
+| Dependency vulnerabilities | `.github/workflows/dependency-audit.yml`  | [docs/ci/dependency-audit.md](docs/ci/dependency-audit.md)     |
+| SBOM (CycloneDX)           | `.github/workflows/sbom.yml`              | [docs/ci/sbom.md](docs/ci/sbom.md)                             |
+| Bundle size + Lighthouse   | `.github/workflows/performance.yml`       | [docs/ci/performance-gates.md](docs/ci/performance-gates.md)   |
+| Canary production deploy   | `.github/workflows/deploy-production.yml` | [docs/deploy/canary-rollout.md](docs/deploy/canary-rollout.md) |
+
+---
+
 ## Adding a new tab
 
 1. Create `components/<name>/<Name>Tab.tsx` and export a `<NameTab />` component.
@@ -163,4 +174,6 @@ Notable milestones on the path to a working testnet client:
 | Linting        | ESLint + Prettier + Husky pre-commit                             |
 | Testing        | Vitest + Testing Library                                         |
 | CI             | GitHub Actions (lint → typecheck → test → build → bundle budget) |
+| Quality gates  | Dependency audit, SBOM, bundle budget, Lighthouse                |
+| Deploys        | Vercel Rolling Releases canary + auto-rollback                   |
 | Target network | Stellar Testnet (Soroban)                                        |

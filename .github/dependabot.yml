@@ -27,14 +27,39 @@ updates:
   - package-ecosystem: npm
     directory: /
     schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Etc/UTC
+    open-pull-requests-limit: 10
+    allow:
+      - dependency-type: all
+    labels:
+      - dependencies
+    commit-message:
+      prefix: "chore(deps)"
+      prefix-development: "chore(deps-dev)"
+      include: scope
+    groups:
+      # Framework packages must move together or the build breaks.
+      nextjs:
+        patterns:
+    
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
       # Monday 06:00 UTC. Early in the week, so a held update is noticed while
       # someone is around rather than ageing over a weekend.
+      interval: weekly
       day: monday
       time: "06:00"
       timezone: Etc/UTC
     open-pull-requests-limit: 5
     commit-message:
       prefix: "chore(deps)"
+      prefix-development: "chore(deps-dev)"
+      include: scope
     labels:
       - dependencies
       - automerge-candidate
@@ -82,9 +107,33 @@ updates:
           - "react"
           - "react-dom"
 
+      # Framework packages must move together or the build breaks.
+      nextjs:
+        patterns:
+          - next
+          - eslint-config-next
+      react:
+        patterns:
+          - react
+          - react-dom
+          - "@types/react"
+          - "@types/react-dom"
+      stellar:
+        patterns:
+          - "@stellar/*"
+          - "@creit.tech/*"
+      dev-tooling:
+        dependency-type: development
+        update-types:
+          - minor
+          - patch
+    # Security fixes are never grouped, so one vulnerable package cannot be held
+    # back by an unrelated failing bump in the same group.
+
   - package-ecosystem: github-actions
     directory: /
     schedule:
+      interval: weekly
       day: monday
       time: "06:00"
       timezone: Etc/UTC
@@ -93,6 +142,7 @@ updates:
       prefix: "chore(deps)"
     labels:
       - dependencies
+      - ci
       - automerge-candidate
     # No `groups` on purpose. An action `v4` -> `v5` bump is a major move and the
     # policy holds majors, so bundling actions would only produce held PRs with a

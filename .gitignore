@@ -56,5 +56,9 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
+# CI tooling output
+/.lighthouseci/
+/sbom/
+
 # flake reporter output (local run artifact)
 /.flake-report.json
