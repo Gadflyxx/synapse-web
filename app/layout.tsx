@@ -6,6 +6,7 @@ import { AMBER, BG0 } from "@/lib/constants";
 import { ToastProvider } from "@/components/ui/Toast";
 import { SorobanProvider } from "@/lib/soroban/SorobanProvider";
 import { WalletProvider } from "@/lib/wallet/WalletProvider";
+import { FlagProvider } from "@/lib/flags/FlagProvider";
 import { WebVitalsReporter } from "@/components/telemetry/WebVitalsReporter";
 import { LiveRegion } from "@/components/ui/LiveRegion";
 import "./globals.css";
@@ -87,7 +88,15 @@ export default async function RootLayout({ children }: { children: React.ReactNo
               rpcUrl={process.env.NEXT_PUBLIC_SOROBAN_RPC_URL}
               defaultContractId={process.env.NEXT_PUBLIC_CONTRACT_ID}
             >
-              <WalletProvider>{children}</WalletProvider>
+              <WalletProvider>
+                {/*
+                  Outermost of the app providers so any component can read a flag.
+                  It renders children immediately against registry defaults and
+                  upgrades to the remote config in an effect, so SSR and the first
+                  client render always agree — see lib/flags/FlagProvider.tsx.
+                */}
+                <FlagProvider>{children}</FlagProvider>
+              </WalletProvider>
             </SorobanProvider>
           </ToastProvider>
         </NextIntlClientProvider>

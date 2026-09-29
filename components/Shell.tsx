@@ -25,6 +25,8 @@ import { LOCALES, LOCALE_LABELS, type Locale } from "@/i18n/config";
 import { useWalletExtensionDetection } from "@/lib/wallet/detection";
 import { NoWalletGuidance } from "@/components/wallet/NoWalletGuidance";
 import { Profiled, ProfilerOverlay } from "@/lib/dev-tools/ProfilerOverlay";
+import { resolveActiveTab, visibleTabs, type FlagKey } from "@/lib/flags/definitions";
+import { useFlag, useFlags } from "@/lib/flags/FlagProvider";
 
 const TabLoadingFallback = () => (
   <div
@@ -106,6 +108,28 @@ export function Shell({ initialTab = "dashboard" }: { initialTab?: Tab }) {
   const { status: rpcStatus, lastEventAge, health: rpcHealth } = useSorobanStatus();
   const { address, accounts, connecting, error, connect, disconnect, switchAccount } = useWallet();
   const { hasAny, checked } = useWalletExtensionDetection();
+
+  // Feature flags. `isEnabled` is read during the first render, before the
+  // remote config has arrived, so it resolves to the registry default — which
+  // is the safe direction and identical on server and client, so there is no
+  // hydration mismatch. The remote config lands in an effect one tick later.
+  const {
+    status: flagStatus,
+    source: flagSource,
+    stale: flagStale,
+    lastError: flagError,
+  } = useFlags();
+  const adminEnabled = useFlag("tab.admin");
+  const docsEnabled = useFlag("tab.docs");
+  const isFlagEnabled = (key: FlagKey) =>
+    key === "tab.admin" ? adminEnabled : key === "tab.docs" ? docsEnabled : true;
+
+  // A tab can be switched off remotely *while it is open*, so the active tab is
+  // re-validated against the visible set on every render rather than only on
+  // click. Without this, disabling `tab.admin` from the flag console would
+  // blank the content area for anyone currently looking at it.
+  const shownTabs = visibleTabs(TABS, isFlagEnabled);
+  const activeTab = resolveActiveTab(TABS, tab, isFlagEnabled);
   const connected = address !== null;
   const canSwitch = connected && accounts.length > 1;
   const { toast } = useToast();
@@ -627,6 +651,21 @@ export function Shell({ initialTab = "dashboard" }: { initialTab?: Tab }) {
           >
             DOCS ↗
           </a>
+          <span style={{ fontSize: 9, letterSpacing: "0.1em" }}>
+            {/*
+              Flag source indicator. Normally invisible-ish; it only draws
+              attention when the flag config could not be loaded and the app is
+              running on registry defaults, which is the one flag state worth
+              noticing at a glance.
+            */}
+            {flagStatus === "loading"
+              ? "FLAGS: loading"
+              : flagSource === "remote"
+                ? ""
+                : `FLAGS: ${flagSource === "cache" ? "cached" : "defaults"}${flagStale ? " (stale)" : ""}${
+                    flagError ? ` · ${flagError}` : ""
+                  }`}
+          </span>
           <span
             style={{
               fontSize: 9,
