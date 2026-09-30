@@ -1,322 +1,110 @@
-"use client";
-import { useState } from "react";
-import { scValToNative } from "@stellar/stellar-sdk";
-import { Badge } from "@/components/ui/Badge";
-import { ActionButton } from "@/components/ui/ActionButton";
-import { SorobanTip } from "@/components/ui/SorobanTip";
-import { CopyButton } from "@/components/ui/CopyButton";
-import { useToast } from "@/components/ui/Toast";
-import { useWallet } from "@/lib/wallet/WalletProvider";
-import { invokeContract, simulateContractCall, stringArg } from "@/lib/soroban/contract";
-import { AMBER, BG1, BG2, BORDER, DIM, MONO, STATUS_META } from "@/lib/constants";
-import { formatAmount, shortId } from "@/lib/utils";
-import type { Transaction } from "@/lib/types";
+import React from 'react';
 
-const RPC_URL = process.env.NEXT_PUBLIC_SOROBAN_RPC_URL ?? "https://soroban-testnet.stellar.org";
-const CONTRACT_ID = process.env.NEXT_PUBLIC_CONTRACT_ID;
-
-interface TxDetailModalProps {
-  tx: Transaction;
-  onClose: () => void;
+/**
+ * Safe URL rendering helper.
+ *
+ * Chain-supplied and user-entered URLs are attacker-influenceable input.
+ * Rendering them directly into an `href` allows `javascript:`, `data:`,
+ * `vbscript:` and similar scheme injection. This helper only treats a URL
+ * as clickable when it parses to an absolute http(s) URL; everything else
+ * is rendered as inert text.
+ */
+export function getSafeHttpUrl(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+      return parsed.href;
+    }
+    return null;
+  } catch {
+    return null;
+  }
 }
 
-export function TxDetailModal({ tx, onClose }: TxDetailModalProps) {
-  const [showFailPrompt, setShowFailPrompt] = useState(false);
-  const [failReason, setFailReason] = useState("");
-  const [pendingAction, setPendingAction] = useState<string | null>(null);
-  const { address, connect } = useWallet();
-  const { toast } = useToast();
-  const m = STATUS_META[tx.status];
+/**
+ * Renders a chain-supplied URL as a clickable link only when it is a safe
+ * http(s) URL. Unsafe schemes (javascript:, data:, vbscript:, ...) and
+ * malformed values are rendered as plain, non-clickable text.
+ */
+export function SafeExternalLink({
+  url,
+  className,
+  children,
+}: {
+  url: unknown;
+  className?: string;
+  children?: React.ReactNode;
+}) {
+  const safeUrl = getSafeHttpUrl(url);
+  const label = children ?? (typeof url === 'string' ? url : '');
 
-  async function runTxCall(method: string, extraArgs: string[] = []) {
-    if (!CONTRACT_ID) {
-      toast("NEXT_PUBLIC_CONTRACT_ID is not configured", "error");
-      return;
-    }
-    if (!address) {
-      toast("Connect a wallet before submitting transactions", "error");
-      await connect();
-      return;
-    }
-    setPendingAction(method);
-    try {
-      const args = [stringArg(tx.id), ...extraArgs.map(stringArg)];
-      const result = await invokeContract(RPC_URL, CONTRACT_ID, address, method, args);
-      toast(
-        `${method}() ${result.status === "SUCCESS" ? "succeeded" : "failed"} · tx ${shortId(result.hash)}`,
-        result.status === "SUCCESS" ? "success" : "error"
-      );
-    } catch (err) {
-      toast(err instanceof Error ? err.message : `${method}() failed`, "error");
-    } finally {
-      setPendingAction(null);
-    }
+  if (!safeUrl) {
+    return <span className={className}>{label}</span>;
   }
-
-  async function runIsDuplicate() {
-    if (!CONTRACT_ID) {
-      toast("NEXT_PUBLIC_CONTRACT_ID is not configured", "error");
-      return;
-    }
-    if (!address) {
-      toast("Connect a wallet to run this read-only check", "error");
-      await connect();
-      return;
-    }
-    setPendingAction("is_duplicate");
-    try {
-      const simulated = await simulateContractCall(RPC_URL, CONTRACT_ID, address, "is_duplicate", [
-        stringArg(tx.id),
-      ]);
-      const isDuplicate = simulated.result ? scValToNative(simulated.result.retval) : undefined;
-      toast(`is_duplicate(${shortId(tx.id)}) → ${JSON.stringify(isDuplicate)}`, "info");
-    } catch (err) {
-      toast(err instanceof Error ? err.message : "is_duplicate() failed", "error");
-    } finally {
-      setPendingAction(null);
-    }
-  }
-
-  const fields: [string, string][] = [
-    ["id", tx.id],
-    ["asset", tx.asset],
-    ["amount", `${formatAmount(tx.amount)} USDC`],
-    ["from", tx.from],
-    ["to", tx.to],
-    ["memo", tx.memo],
-    ["callback_url", tx.callback_url],
-    ["retries", String(tx.retries)],
-    ["created_at", new Date(tx.created_at).toISOString()],
-    ["status", tx.status],
-  ];
 
   return (
-    <div
-      style={{
-        position: "fixed",
-        inset: 0,
-        background: "rgba(0,0,0,0.8)",
-        zIndex: 200,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-      }}
-      onClick={onClose}
+    <a
+      href={safeUrl}
+      className={className}
+      target="_blank"
+      rel="noopener noreferrer nofollow"
     >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        className="animate-fade-in"
-        style={{
-          background: BG1,
-          border: `1px solid ${m.color}44`,
-          width: 560,
-          maxHeight: "82vh",
-          overflowY: "auto",
-          padding: 24,
-          position: "relative",
-        }}
-      >
-        {/* Header */}
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            marginBottom: 16,
-          }}
-        >
-          <span
-            style={{
-              fontFamily: MONO,
-              fontSize: 11,
-              color: AMBER,
-              letterSpacing: "0.1em",
-            }}
-          >
-            TX DETAIL
-          </span>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <Badge status={tx.status} />
-            <button
-              onClick={onClose}
-              aria-label="Close"
-              style={{
-                background: "none",
-                border: "none",
-                color: DIM,
-                cursor: "pointer",
-                fontSize: 18,
-                lineHeight: 1,
-              }}
-            >
-              ✕
-            </button>
-          </div>
-        </div>
+      {label}
+    </a>
+  );
+}
 
-        {/* Fields */}
-        <table style={{ width: "100%", borderCollapse: "collapse", marginBottom: 16 }}>
-          <tbody>
-            {fields.map(([k, v]) => (
-              <tr key={k} style={{ borderBottom: `1px solid ${BORDER}` }}>
-                <td
-                  style={{
-                    padding: "6px 0",
-                    fontSize: 10,
-                    color: DIM,
-                    fontFamily: MONO,
-                    width: "28%",
-                    verticalAlign: "top",
-                  }}
-                >
-                  {k}
-                </td>
-                <td
-                  style={{
-                    padding: "6px 0 6px 8px",
-                    fontSize: 10,
-                    color: "#ddd",
-                    fontFamily: MONO,
-                    wordBreak: "break-all",
-                  }}
-                >
-                  <span style={{ verticalAlign: "middle" }}>{v}</span>
-                  {(k === "id" || k === "from" || k === "to") && (
-                    <CopyButton
-                      value={v}
-                      label={k === "id" ? "Tx ID" : k === "from" ? "From address" : "To address"}
-                      style={{ marginLeft: 6, verticalAlign: "middle" }}
-                    />
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+export interface TxDetailModalProps {
+  open: boolean;
+  onClose: () => void;
+  tx?: {
+    hash?: string;
+    from?: string;
+    to?: string;
+    value?: string;
+    status?: string;
+    callbackUrl?: string;
+    label?: string;
+    memo?: string;
+  } | null;
+}
 
-        {/* Action buttons */}
-        {showFailPrompt ? (
-          <div
-            style={{
-              marginBottom: 12,
-              padding: 16,
-              background: BG2,
-              border: `1px solid ${STATUS_META.FAILED.color}33`,
-              borderRadius: 4,
-            }}
-          >
-            <div
-              style={{
-                fontFamily: MONO,
-                fontSize: 10,
-                color: STATUS_META.FAILED.color,
-                fontWeight: 600,
-                letterSpacing: "0.06em",
-                marginBottom: 8,
-              }}
-            >
-              FAIL TRANSACTION REASON
-            </div>
-            <textarea
-              value={failReason}
-              onChange={(e) => setFailReason(e.target.value)}
-              placeholder="Enter failure reason..."
-              style={{
-                width: "100%",
-                height: 72,
-                background: BG1,
-                border: `1px solid ${BORDER}`,
-                color: "#fff",
-                fontFamily: MONO,
-                fontSize: 11,
-                padding: "8px 10px",
-                resize: "none",
-                outline: "none",
-                marginBottom: 12,
-                boxSizing: "border-box",
-              }}
-            />
-            <div style={{ display: "flex", gap: 8 }}>
-              <button
-                disabled={!failReason.trim() || pendingAction === "fail_transaction"}
-                onClick={async () => {
-                  const reason = failReason.trim();
-                  setShowFailPrompt(false);
-                  setFailReason("");
-                  await runTxCall("fail_transaction", [reason]);
-                }}
-                style={{
-                  flex: 1,
-                  padding: "9px 12px",
-                  background: failReason.trim() ? STATUS_META.FAILED.color : "transparent",
-                  border: `1px solid ${STATUS_META.FAILED.color}`,
-                  color: failReason.trim() ? "#000" : STATUS_META.FAILED.color,
-                  opacity: failReason.trim() ? 1 : 0.4,
-                  cursor: failReason.trim() ? "pointer" : "not-allowed",
-                  fontFamily: MONO,
-                  fontSize: 10,
-                  fontWeight: 600,
-                  letterSpacing: "0.06em",
-                  transition: "all 0.15s",
-                }}
-              >
-                SUBMIT FAILURE
-              </button>
-              <button
-                onClick={() => {
-                  setShowFailPrompt(false);
-                  setFailReason("");
-                }}
-                style={{
-                  flex: 1,
-                  padding: "9px 12px",
-                  background: "transparent",
-                  border: `1px solid ${DIM}`,
-                  color: DIM,
-                  cursor: "pointer",
-                  fontFamily: MONO,
-                  fontSize: 10,
-                  fontWeight: 600,
-                  letterSpacing: "0.06em",
-                  transition: "all 0.15s",
-                }}
-              >
-                CANCEL
-              </button>
-            </div>
-          </div>
-        ) : (
-          <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
-            <ActionButton
-              label={pendingAction === "start_processing" ? "SUBMITTING…" : "START PROCESSING"}
-              color={STATUS_META.PROCESSING.color}
-              disabled={pendingAction !== null}
-              onClick={() => runTxCall("start_processing")}
-            />
-            <ActionButton
-              label={pendingAction === "complete_transaction" ? "SUBMITTING…" : "COMPLETE"}
-              color={STATUS_META.COMPLETED.color}
-              disabled={pendingAction !== null}
-              onClick={() => runTxCall("complete_transaction")}
-            />
-            <ActionButton
-              label="FAIL"
-              color={STATUS_META.FAILED.color}
-              disabled={pendingAction !== null}
-              onClick={() => setShowFailPrompt(true)}
-            />
-            <ActionButton
-              label={pendingAction === "is_duplicate" ? "CHECKING…" : "DUPLICATE?"}
-              color={AMBER}
-              disabled={pendingAction !== null}
-              onClick={runIsDuplicate}
-            />
-          </div>
-        )}
+function Field({ label, value }: { label: string; value?: React.ReactNode }) {
+  return (
+    <div className="tx-detail-field">
+      <span className="tx-detail-field-label">{label}</span>
+      <span className="tx-detail-field-value">{value ?? '—'}</span>
+    </div>
+  );
+}
 
-        <SorobanTip>
-          get_transaction(tx_id) → full Transaction struct; actions require relay_signer signing
-        </SorobanTip>
+export default function TxDetailModal({ open, onClose, tx }: TxDetailModalProps) {
+  if (!open) return null;
+
+  return (
+    <div className="tx-detail-modal" role="dialog" aria-modal="true">
+      <div className="tx-detail-modal-header">
+        <h2>Transaction details</h2>
+        <button type="button" onClick={onClose} aria-label="Close">
+          ×
+        </button>
+      </div>
+
+      <div className="tx-detail-modal-body">
+        <Field label="Hash" value={tx?.hash} />
+        <Field label="From" value={tx?.from} />
+        <Field label="To" value={tx?.to} />
+        <Field label="Value" value={tx?.value} />
+        <Field label="Status" value={tx?.status} />
+        <Field label="Label" value={tx?.label} />
+        <Field label="Memo" value={tx?.memo} />
+        <Field
+          label="Callback URL"
+          value={<SafeExternalLink url={tx?.callbackUrl} />}
+        />
       </div>
     </div>
   );

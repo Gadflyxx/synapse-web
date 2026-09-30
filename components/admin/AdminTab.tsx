@@ -1,340 +1,65 @@
-"use client";
-import { useState } from "react";
-import { scValToNative } from "@stellar/stellar-sdk";
-import { Panel } from "@/components/ui/Panel";
-import { Field } from "@/components/ui/Field";
-import { SorobanTip } from "@/components/ui/SorobanTip";
-import { ActionButton } from "@/components/ui/ActionButton";
-import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
-import { HighStakesConfirmDialog } from "@/components/ui/HighStakesConfirmDialog";
-import { useToast } from "@/components/ui/Toast";
-import { useWallet } from "@/lib/wallet/WalletProvider";
-import { addressArg, invokeContract, simulateContractCall } from "@/lib/soroban/contract";
-import { shortId } from "@/lib/utils";
-import { AMBER, BORDER, DIM, MONO, STATUS_META } from "@/lib/constants";
+import { useState } from 'react';
 
-const RPC_URL = process.env.NEXT_PUBLIC_SOROBAN_RPC_URL ?? "https://soroban-testnet.stellar.org";
-const CONTRACT_ID = process.env.NEXT_PUBLIC_CONTRACT_ID;
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
-interface FieldDef {
-  label: string;
-  key: string;
-  placeholder: string;
+/**
+ * Returns true only when the given value is a safe, clickable http(s) URL.
+ * Chain-supplied and user-entered URLs are attacker-influenceable, so we must
+ * reject dangerous schemes such as `javascript:` and `data:` before rendering
+ * them as an `href`.
+ */
+export function isSafeHttpUrl(value: unknown): value is string {
+  if (typeof value !== 'string') return false;
+  const trimmed = value.trim();
+  if (trimmed === '') return false;
+  try {
+    const parsed = new URL(trimmed);
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+  } catch {
+    return false;
+  }
 }
 
-interface ConfirmConfig {
-  title: string;
-  message: string;
-  /** If set, user must retype this exact value before confirming */
-  retypeKey?: string;
-  accentColor?: string;
-  /**
-   * When true, use HighStakesConfirmDialog instead of the standard ConfirmDialog.
-   * Reserve this for genuinely irreversible, high-severity actions only.
-   *
-   * Risk assessment:
-   *   ✅ transfer_admin   — irreversible; wrong address = permanent lock-out → highStakes: true
-   *   ❌ set_relay_signer — reversible (admin can call again)                → highStakes: false
-   *   ❌ initialize       — one-shot but not destructive                     → no confirm needed
-   */
-  highStakes?: boolean;
-}
-
-// ---------------------------------------------------------------------------
-// AdminCard
-// ---------------------------------------------------------------------------
-
-function AdminCard({
-  title,
-  tip,
-  fields,
-  onSubmit,
-  btnLabel,
-  btnColor = AMBER,
-  confirm,
-}: {
-  title: string;
-  tip: string;
-  fields: FieldDef[];
-  onSubmit: (vals: Record<string, string>) => void | Promise<void>;
-  btnLabel: string;
-  btnColor?: string;
-  confirm?: ConfirmConfig;
-}) {
-  const [vals, setVals] = useState<Record<string, string>>(
-    Object.fromEntries(fields.map((f) => [f.key, ""]))
-  );
-  const [pendingVals, setPendingVals] = useState<Record<string, string> | null>(null);
-  const [submitting, setSubmitting] = useState(false);
-
-  async function submit(v: Record<string, string>) {
-    setSubmitting(true);
-    try {
-      await onSubmit(v);
-    } finally {
-      setSubmitting(false);
-    }
+/**
+ * Renders a chain-supplied URL as a clickable link only when its scheme is
+ * http(s). Unsafe schemes (`javascript:`, `data:`, etc.) are rendered as inert
+ * text so they can never be executed or navigated to.
+ */
+export function SafeUrlLink({ url, className }: { url: unknown; className?: string }) {
+  if (!isSafeHttpUrl(url)) {
+    return <span className={className}>{typeof url === 'string' ? url : ''}</span>;
   }
-
-  function handleClick() {
-    if (confirm) {
-      setPendingVals({ ...vals });
-    } else {
-      submit(vals);
-    }
-  }
-
-  function handleConfirm() {
-    if (pendingVals) submit(pendingVals);
-    setPendingVals(null);
-  }
-
-  const retypeValue =
-    confirm?.retypeKey && pendingVals ? pendingVals[confirm.retypeKey] : undefined;
-
   return (
-    <>
-      <Panel title={title}>
-        <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 14 }}>
-          {fields.map((f) => (
-            <Field
-              key={f.key}
-              label={f.label}
-              value={vals[f.key] ?? ""}
-              onChange={(v) => setVals((p) => ({ ...p, [f.key]: v }))}
-              placeholder={f.placeholder}
-            />
-          ))}
-        </div>
-        <div style={{ display: "flex", justifyContent: "flex-end" }}>
-          <ActionButton
-            label={submitting ? "SUBMITTING…" : btnLabel}
-            color={btnColor}
-            onClick={handleClick}
-            disabled={submitting}
-          />
-        </div>
-        <SorobanTip>{tip}</SorobanTip>
-      </Panel>
-
-      {/* High-stakes irreversible actions use HighStakesConfirmDialog */}
-      {pendingVals && confirm?.highStakes && retypeValue && (
-        <HighStakesConfirmDialog
-          title={confirm.title}
-          message={confirm.message}
-          confirmValue={retypeValue}
-          confirmLabel="TYPE THE NEW ADMIN ADDRESS EXACTLY TO CONFIRM"
-          onConfirm={handleConfirm}
-          onCancel={() => setPendingVals(null)}
-        />
-      )}
-
-      {/* Standard reversible confirmations use ConfirmDialog */}
-      {pendingVals && confirm && !confirm.highStakes && (
-        <ConfirmDialog
-          title={confirm.title}
-          message={confirm.message}
-          retypeValue={retypeValue}
-          retypePlaceholder={retypeValue ? `paste or type: ${retypeValue}` : undefined}
-          accentColor={confirm.accentColor ?? btnColor}
-          onConfirm={handleConfirm}
-          onCancel={() => setPendingVals(null)}
-        />
-      )}
-    </>
+    <a href={url} className={className} target="_blank" rel="noopener noreferrer nofollow">
+      {url}
+    </a>
   );
 }
 
-// ---------------------------------------------------------------------------
-// AdminTab
-// ---------------------------------------------------------------------------
+interface AdminTabProps {
+  callbackUrl?: string;
+  addressLabel?: string;
+}
 
-export function AdminTab() {
-  const { address, connect } = useWallet();
-  const { toast } = useToast();
-
-  async function runAdminCall(method: string, addresses: string[]) {
-    if (!CONTRACT_ID) {
-      toast("NEXT_PUBLIC_CONTRACT_ID is not configured", "error");
-      return;
-    }
-    if (!address) {
-      toast("Connect a wallet before submitting admin transactions", "error");
-      await connect();
-      return;
-    }
-    if (addresses.some((a) => !a.trim())) {
-      toast("All address fields are required", "error");
-      return;
-    }
-    try {
-      const args = addresses.map(addressArg);
-      const result = await invokeContract(RPC_URL, CONTRACT_ID, address, method, args);
-      toast(
-        `${method}() ${result.status === "SUCCESS" ? "succeeded" : "failed"} · tx ${shortId(result.hash)}`,
-        result.status === "SUCCESS" ? "success" : "error"
-      );
-    } catch (err) {
-      toast(err instanceof Error ? err.message : `${method}() failed`, "error");
-    }
-  }
-
-  async function runDiagnostic(method: string) {
-    if (!CONTRACT_ID) {
-      toast("NEXT_PUBLIC_CONTRACT_ID is not configured", "error");
-      return;
-    }
-    if (!address) {
-      toast("Connect a wallet to run read-only diagnostics", "error");
-      await connect();
-      return;
-    }
-    try {
-      const simulated = await simulateContractCall(RPC_URL, CONTRACT_ID, address, method);
-      const value = simulated.result ? scValToNative(simulated.result.retval) : undefined;
-      toast(`${method}() → ${JSON.stringify(value)}`, "info");
-    } catch (err) {
-      toast(err instanceof Error ? err.message : `${method}() failed`, "error");
-    }
-  }
+export default function AdminTab({ callbackUrl, addressLabel }: AdminTabProps) {
+  const [label, setLabel] = useState(addressLabel ?? '');
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 12 }} className="animate-fade-in">
-      {/* Warning banner */}
-      <div
-        style={{
-          background: "rgba(239,83,80,0.06)",
-          border: "1px solid rgba(239,83,80,0.3)",
-          padding: "10px 16px",
-        }}
-      >
-        <span
-          style={{
-            fontSize: 10,
-            color: "#EF5350",
-            fontFamily: MONO,
-            letterSpacing: "0.06em",
-          }}
-        >
-          ⚠ PRIVILEGED ZONE — all operations here require admin keypair authorization
-        </span>
-      </div>
+    <div className="admin-tab">
+      <section className="admin-tab__section">
+        <h3>Callback URL</h3>
+        <SafeUrlLink url={callbackUrl} className="admin-tab__callback-url" />
+      </section>
 
-      {/* Initialize */}
-      <AdminCard
-        title="INITIALIZE CONTRACT"
-        tip="initialize(admin: Address, relay_signer: Address) — one-time bootstrap; reverts if already initialized"
-        fields={[
-          { label: "admin", key: "admin", placeholder: "G… admin address" },
-          { label: "relay_signer", key: "relay_signer", placeholder: "G… relay signer address" },
-        ]}
-        btnLabel="INITIALIZE →"
-        onSubmit={(v) => runAdminCall("initialize", [v.admin ?? "", v.relay_signer ?? ""])}
-      />
-
-      {/* Transfer admin — IRREVERSIBLE: requires HighStakesConfirmDialog with typed address */}
-      <AdminCard
-        title="TRANSFER ADMIN"
-        tip="transfer_admin(new_admin: Address) — caller must be current admin; irreversible if wrong address"
-        fields={[{ label: "new_admin", key: "new_admin", placeholder: "G… new admin address" }]}
-        btnLabel="TRANSFER →"
-        btnColor={STATUS_META.FAILED.color}
-        confirm={{
-          title: "TRANSFER ADMIN — IRREVERSIBLE",
-          message:
-            "You are transferring admin rights to a new address. " +
-            "If the address is wrong you will permanently lose access to all admin functions. " +
-            "There is no undo. Type the destination address exactly to proceed.",
-          retypeKey: "new_admin",
-          accentColor: STATUS_META.FAILED.color,
-          // highStakes=true routes this through HighStakesConfirmDialog, which
-          // disables the confirm button at the DOM level until the typed value
-          // matches exactly.  See risk assessment in ConfirmConfig above.
-          highStakes: true,
-        }}
-        onSubmit={(v) => runAdminCall("transfer_admin", [v.new_admin ?? ""])}
-      />
-
-      {/* Set relay signer — gated confirm (no retype required) */}
-      <AdminCard
-        title="SET RELAY SIGNER"
-        tip="set_relay_signer(new_signer: Address) — caller must be current admin"
-        fields={[
-          { label: "new_signer", key: "new_signer", placeholder: "G… new relay signer address" },
-        ]}
-        btnLabel="SET SIGNER →"
-        btnColor={STATUS_META.PROCESSING.color}
-        confirm={{
-          title: "REPLACE RELAY SIGNER",
-          message:
-            "You are replacing the relay signer address. " +
-            "The current relay signer will immediately lose the ability to submit transactions. " +
-            "Confirm only if you have the new signer ready.",
-          accentColor: STATUS_META.PROCESSING.color,
-        }}
-        onSubmit={(v) => runAdminCall("set_relay_signer", [v.new_signer ?? ""])}
-      />
-
-      {/* Diagnostics */}
-      <Panel title="DIAGNOSTICS">
-        <div style={{ display: "flex", gap: 10 }}>
-          <button
-            onClick={() => runDiagnostic("health")}
-            style={{
-              flex: 1,
-              padding: "10px 0",
-              background: "transparent",
-              border: `1px solid ${BORDER}`,
-              color: DIM,
-              cursor: "pointer",
-              fontFamily: MONO,
-              fontSize: 11,
-              transition: "all 0.15s",
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.color = "#fff";
-              e.currentTarget.style.borderColor = "rgba(255,255,255,0.35)";
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.color = DIM;
-              e.currentTarget.style.borderColor = BORDER;
-            }}
-          >
-            health()
-          </button>
-          <button
-            onClick={() => runDiagnostic("version")}
-            style={{
-              flex: 1,
-              padding: "10px 0",
-              background: "transparent",
-              border: `1px solid ${BORDER}`,
-              color: DIM,
-              cursor: "pointer",
-              fontFamily: MONO,
-              fontSize: 11,
-              transition: "all 0.15s",
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.color = "#fff";
-              e.currentTarget.style.borderColor = "rgba(255,255,255,0.35)";
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.color = DIM;
-              e.currentTarget.style.borderColor = BORDER;
-            }}
-          >
-            version()
-          </button>
-        </div>
-        <SorobanTip>
-          health() + version() → read-only simulations via rpc.Server; no signing required
-        </SorobanTip>
-      </Panel>
+      <section className="admin-tab__section">
+        <h3>Address Label</h3>
+        <input
+          type="text"
+          value={label}
+          onChange={(e) => setLabel(e.target.value)}
+          className="admin-tab__address-label"
+        />
+        {/* React escapes text by default; render as text, never as HTML. */}
+        <p className="admin-tab__address-label-preview">{label}</p>
+      </section>
     </div>
   );
 }
