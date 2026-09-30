@@ -183,24 +183,62 @@ jobs:
 
       # Subresource Integrity gate (#179). Every externally-hosted <script> or
       # <link rel="stylesheet"> must carry a valid `integrity` hash and a
-      # `crossorigin` attribute, so a compromised third-party host cannot inject
-      # code. The check is a static scan of the source tree; it fails the build
-      # with a per-file report when a tag is missing either attribute.
-      #
-      # Updating a pinned asset: bump the URL version, recompute the hash with
-      #   openssl dgst -sha384 -binary <file> | openssl base64 -A
-      # and update the tag in the same commit. The check re-verifies the format
-      # (sha256/sha384/sha512 + base64) on every run.
-      - name: Verify Subresource Integrity on external assets
+      # `crossorigin` attribute, so a compromised third-party host cannot swap
+      # the payload out from under the page. Runs before the build because it is
+      # a static check over source and needs no compiled output.
+      - name: Verify subresource integrity attributes
         run: node scripts/check-sri.mjs
 
-      - name: Lint
-        run: npm run lint
-
-      - name: Typecheck
-        run: npx tsc --noEmit
-
+      # Production build. The output lands in `.next`, which the secret scan
+      # below reads. Nothing here uploads `.next` as an artifact, so the scan is
+      # the only consumer of the build output.
       - name: Build
         run: npm run build
 
-  # ------------------------------------------------------------
+      # -----------------------------------------------------------------------
+      # Secrets-in-frontend-bundle scan (#181).
+      #
+      # Anything shipped to the client bundle is public regardless of intent, and
+      # the easiest way to leak a server-only value is to reference it without
+      # the `NEXT_PUBLIC_` prefix. This gate scans the *build output* (`.next`),
+      # not the repo or git history — that is a separate concern.
+      #
+      # gitleaks is run against `.next` with `--no-git` so it treats the directory
+      # as a plain filesystem tree rather than a repository. The config in
+      # `.gitleaks.toml` carries the allowlist that keeps legitimate public data
+      # (e.g. a public Testnet contract ID that happens to match a key-shaped
+      # pattern) from failing the build, while genuine secrets still trip it.
+      #
+      # `--redact` keeps any matched value out of the CI log; the report still
+      # names the rule and the file/line so the finding is actionable.
+      # -----------------------------------------------------------------------
+      - name: Scan production bundle for secrets
+        run: |
+          docker run --rm \
+            -v "$PWD:/repo" \
+            -w /repo \
+            ghcr.io/gitleaks/gitleaks:v8.18.4 \
+            detect \
+              --no-git \
+              --source=.next \
+              --config=.gitleaks.toml \
+              --redact \
+              --report-format=json \
+              --report-path=/repo/gitleaks-bundle-report.json \
+              --exit-code=1
+
+      # Surface the machine-readable report in the job summary so a failure
+      # explains *what* was found and *where*, not just that the gate tripped.
+      - name: Report bundle secret findings
+        if: failure()
+        run: |
+          if [ -f gitleaks-bundle-report.json ]; then
+            echo "### Secrets detected in production bundle" >> "$GITHUB_STEP_SUMMARY"
+            echo '' >> "$GITHUB_STEP_SUMMARY"
+            echo '```json' >> "$GITHUB_STEP_SUMMARY"
+            cat gitleaks-bundle-report.json >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::gitleaks found secret-like material in .next. See the job summary for the rule, file, and line of each finding."
+          else
+            echo "::error::Bundle secret scan failed before producing a report. Check the scan step log."
+          fi

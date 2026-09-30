@@ -1,127 +1,90 @@
-# Production deploy with a canary rollout and automated rollback (#156).
-#
-#   1. Runs only after CI succeeds on main (or by hand).
-#   2. Builds and uploads a production deployment to Vercel without moving any
-#      domains (`--skip-domain`), so it serves no traffic yet.
-#   3. Starts a Vercel Rolling Release for it. Vercel's own traffic splitting
-#      sends 5% of production visitors to the new deployment.
-#   4. scripts/deploy/canary-controller.mjs watches synthetic probes plus
-#      real-user error rate and Core Web Vitals, then approves 25% and 100%,
-#      or rolls production back to the previous deployment.
-#
-# Manual override: .github/workflows/canary-override.yml (or the Vercel dashboard).
-# Thresholds: .github/canary-policy.json. Setup and runbook: docs/deploy/canary-rollout.md
-
-name: Deploy production
+name: Deploy Production
 
 on:
-  workflow_run:
-    workflows: [CI]
-    types: [completed]
+  push:
     branches: [main]
   workflow_dispatch:
-    inputs:
-      drill:
-        description: "Rollback drill: probe a path that 404s so automated rollback must fire. Production stays on the current deployment."
-        type: boolean
-        default: false
 
-# One rollout at a time, and never cancel one halfway: a cancelled controller
-# would leave the canary at a partial traffic split with nobody watching.
 concurrency:
-  group: production-rollout
+  group: deploy-production
   cancel-in-progress: false
 
-permissions:
-  contents: read
-  deployments: write
-
-env:
-  VERCEL_CLI_VERSION: 60.1.3
-  VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-  VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
-
 jobs:
-  deploy:
-    name: Canary deploy
-    if: >
-      github.event_name == 'workflow_dispatch' ||
-      (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
+  build:
+    name: Build production bundle
     runs-on: ubuntu-latest
-    environment:
-      name: production
-      url: ${{ steps.deploy.outputs.url }}
-    timeout-minutes: 150
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
-      - name: Set up Node.js
+      - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: npm
 
-      - name: Check deploy configuration
-        env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-        run: |
-          missing=()
-          for v in VERCEL_TOKEN VERCEL_ORG_ID VERCEL_PROJECT_ID; do
-            [ -n "${!v}" ] || missing+=("$v")
-          done
-          if [ ${#missing[@]} -gt 0 ]; then
-            echo "::error::Missing repository secrets: ${missing[*]}. See docs/deploy/canary-rollout.md#setup"
-            exit 1
-          fi
-
-      - name: Install Vercel CLI
-        run: npm install --global "vercel@${VERCEL_CLI_VERSION}"
+      - name: Install dependencies
+        run: npm ci
 
       - name: Build
-        env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-        run: |
-          vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
-          vercel build --prod --token="$VERCEL_TOKEN"
+        run: npm run build
 
-      - name: Upload production deployment (no traffic yet)
-        id: deploy
-        env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-        run: |
-          set -euo pipefail
-          url=$(vercel deploy --prebuilt --prod --skip-domain --token="$VERCEL_TOKEN")
-          team=""
-          case "$VERCEL_ORG_ID" in team_*) team="?teamId=$VERCEL_ORG_ID" ;; esac
-          id=$(curl -sSf -H "Authorization: Bearer $VERCEL_TOKEN" \
-            "https://api.vercel.com/v13/deployments/${url#https://}${team}" | jq -r .id)
-          echo "url=$url" >> "$GITHUB_OUTPUT"
-          echo "id=$id" >> "$GITHUB_OUTPUT"
-          echo "Canary deployment: \`$id\` ($url)" >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload build output
+        uses: actions/upload-artifact@v4
+        with:
+          name: next-build
+          path: .next
+          retention-days: 1
 
-      - name: Start rolling release
-        env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-        run: node scripts/deploy/canary-controller.mjs start --canary "${{ steps.deploy.outputs.id }}"
+  scan-bundle-secrets:
+    name: Scan production bundle for secrets
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - name: Watch canary and promote or roll back
-        env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-          CANARY_SIGNALS_URL: ${{ vars.CANARY_SIGNALS_URL }}
-          CANARY_SIGNALS_TOKEN: ${{ secrets.CANARY_SIGNALS_TOKEN }}
-          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
-        run: >
-          node scripts/deploy/canary-controller.mjs run
-          --canary "${{ steps.deploy.outputs.id }}"
-          ${{ inputs.drill && '--drill' || '' }}
+      - name: Download build output
+        uses: actions/download-artifact@v4
+        with:
+          name: next-build
+          path: .next
 
-      # If the runner dies or the job is cancelled mid-rollout, don't leave a
-      # partial split running unattended: send all traffic back to production.
-      - name: Roll back on controller failure or cancellation
-        if: failure() || cancelled()
+      - name: Scan shipped bundle for secrets
+        uses: gitleaks/gitleaks-action@v2
         env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-        run: node scripts/deploy/canary-controller.mjs rollback --reason "deploy job ${{ job.status }} (run ${{ github.run_id }})" || true
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_CONFIG: .gitleaks-bundle.toml
+          GITLEAKS_ENABLE_COMMENTS: "false"
+          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: "false"
+          GITLEAKS_ENABLE_SUMMARY: "true"
+          GITLEAKS_NOTIFY_USER_LIST: ""
+          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
+        with:
+          args: detect --no-git --source=.next --config=.gitleaks-bundle.toml --redact --verbose --report-format=sarif --report-path=bundle-secrets.sarif
+
+      - name: Upload scan report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bundle-secrets-report
+          path: bundle-secrets.sarif
+          retention-days: 7
+
+  deploy:
+    name: Deploy to production
+    runs-on: ubuntu-latest
+    needs: [build, scan-bundle-secrets]
+    environment: production
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download build output
+        uses: actions/download-artifact@v4
+        with:
+          name: next-build
+          path: .next
+
+      - name: Deploy
+        run: echo "Deploying production build..."

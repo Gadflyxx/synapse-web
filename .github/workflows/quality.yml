@@ -31,3 +31,35 @@ jobs:
 
       - name: Subresource Integrity audit
         run: node scripts/check-sri.mjs
+
+  bundle-secrets:
+    name: Scan Production Bundle for Secrets
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build production bundle
+        run: npm run build
+
+      - name: Scan build output for bundled secrets
+        run: |
+          docker run --rm \
+            -v "${{ github.workspace }}/.next:/scan:ro" \
+            ghcr.io/gitleaks/gitleaks:latest \
+            detect \
+            --no-git \
+            --source=/scan \
+            --config=/scan/../.gitleaks.toml \
+            --redact \
+            --verbose \
+            --exit-code=1

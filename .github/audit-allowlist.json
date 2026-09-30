@@ -1,6 +1,6 @@
 {
   "$schema": "https://json.schemastore.org/audit-allowlist.json",
-  "description": "Allowlist for the dependency supply-chain audit gate (issue #178). Entries here are packages that do NOT yet publish provenance/attestation metadata. They are treated as an accepted, non-blocking gap: the CI gate reports them for visibility and tracks provenance coverage as a baseline to improve over time. Do NOT add entries to silence real signature verification failures.",
+  "description": "Allowlist for the dependency supply-chain audit gate (issue #178) and the frontend-bundle secret scan gate (issue #181). Entries here are packages that do NOT yet publish provenance/attestation metadata. They are treated as an accepted, non-blocking gap: the CI gate reports them for visibility and tracks provenance coverage as a baseline to improve over time. Do NOT add entries to silence real signature verification failures.",
   "provenanceGaps": [
     {
       "package": "example-legacy-package",
@@ -11,5 +11,24 @@
   "baseline": {
     "provenanceCoveragePercent": 0,
     "note": "Baseline provenance-coverage percentage. Update this value as more dependencies publish attestations. The CI gate fails only on signature verification errors, not on missing provenance."
+  },
+  "bundleSecretScan": {
+    "description": "Tuning for the secrets-in-frontend-bundle scan (issue #181). The scan runs gitleaks against the production build output (.next) rather than the repo, since anything shipped to the client bundle is inherently public. Entries below are known-safe public values that match a secret pattern but are intentionally public (e.g. public Testnet contract IDs, well-known public API endpoints). Do NOT add entries to silence genuine secrets — only add values that are provably public and non-sensitive.",
+    "scanPath": ".next",
+    "allowlist": [
+      {
+        "description": "Public Stellar Testnet contract IDs are intentionally public and may match generic hex/secret-like patterns.",
+        "regexes": [
+          "C[A-Z2-7]{55}"
+        ]
+      },
+      {
+        "description": "Public Stellar network passphrases (Testnet/Public) are documented, non-sensitive constants.",
+        "regexes": [
+          "Test SDF Network ; September 2015",
+          "Public Global Stellar Network ; September 2015"
+        ]
+      }
+    ]
   }
 }
