@@ -1,0 +1,22 @@
+# Security contact for Synapse Core (Soroban transaction-lifecycle dashboard)
+# RFC 9116 — https://securitytxt.org/
+#
+# Renewal owner: project maintainers (@Synapse-bridgez)
+# Renewal deadline: renew before the Expires date below.
+# Process: open a PR updating only the Expires field; merge before expiry.
+
+Contact: https://github.com/Synapse-bridgez/synapse-web/security/advisories/new
+Contact: mailto:security@synapse-bridgez.example.com
+
+Expires: 2027-09-29T00:00:00.000Z
+
+Policy: https://github.com/Synapse-bridgez/synapse-web/blob/main/SECURITY.md
+
+Preferred-Languages: en
+
+Acknowledgments: https://github.com/Synapse-bridgez/synapse-web/blob/main/SECURITY.md#acknowledgments
+
+Scope: https://github.com/Synapse-bridgez/synapse-web
+
+# This file is validated against RFC 9116.
+# Validate at: https://securitytxt.org/validate
