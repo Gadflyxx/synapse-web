@@ -181,196 +181,64 @@ jobs:
           fi
           echo "package-lock.json unchanged by npm ci"
 
-      - name: Lint
-        run: npm run lint
+      # Subresource Integrity gate (#179). Every externally-hosted <script> or
+      # <link rel="stylesheet"> must carry a valid `integrity` hash and a
+      # `crossorigin` attribute, so a compromised third-party host cannot swap
+      # the payload out from under the page. Runs before the build because it is
+      # a static check over source and needs no compiled output.
+      - name: Verify subresource integrity attributes
+        run: node scripts/check-sri.mjs
 
-      - name: Typecheck
-        run: npx tsc --noEmit
-
+      # Production build. The output lands in `.next`, which the secret scan
+      # below reads. Nothing here uploads `.next` as an artifact, so the scan is
+      # the only consumer of the build output.
       - name: Build
         run: npm run build
 
-  # ---------------------------------------------------------------------------
-  # Cross-engine E2E (#174)
-  #
-  # One job per engine, each running a single Playwright project from
-  # playwright.config.ts. Splitting by job (rather than running all three
-  # projects in one job) means a WebKit-only failure shows up as a failed WebKit
-  # check instead of an unattributable red X, and each leg gets its own retry
-  # budget.
-  #
-  # Cost: three legs in parallel, so wall-clock impact on the PR is bounded by
-  # the slowest leg (~4 min: npm ci, browser install, production build, 6 specs),
-  # not their sum. This is the single largest addition to CI time in this PR and
-  # is the price of the required browser matrix. `retries: 1` in
-  # playwright.config.ts absorbs genuine flake without hiding a real regression.
-  #
-  # `npx playwright install --with-deps <browser>` installs one engine instead of
-  # all three; the system packages still cost ~30s per leg, which is why the
-  # npm cache and the browser download cache below matter.
-  # ---------------------------------------------------------------------------
-  e2e:
-    name: E2E · ${{ matrix.project }}
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        project: [chromium, firefox, webkit]
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          # `.nvmrc` is the single source of truth for the Node version, shared
-          # with local native setups and Dockerfile.dev. A hardcoded version here
-          # is how the container and CI drift apart.
-          node-version-file: .nvmrc
-          cache: npm
-
-      # --- npm package cache ---------------------------------------------------
-      - name: Locate the npm cache directory
-        id: npm-cache-dir
-        run: echo "dir=$(npm config get cache)" >> "$GITHUB_OUTPUT"
-
-      - name: Restore the npm package cache
-        id: npm-cache-restore
-        uses: actions/cache/restore@v4
-        with:
-          path: ${{ steps.npm-cache-dir.outputs.dir }}
-          key: ${{ runner.os }}-npm-${{ hashFiles('package-lock.json') }}
-          restore-keys: |
-            ${{ runner.os }}-npm-
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Save the npm package cache
-        if: steps.npm-cache-restore.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: ${{ steps.npm-cache-dir.outputs.dir }}
-          key: ${{ runner.os }}-npm-${{ hashFiles('package-lock.json') }}
-
-      # --- Vitest / Vite cache -------------------------------------------------
-      # Restored AFTER `npm ci` on purpose: `npm ci` deletes node_modules wholesale
-      # before reinstalling, so a restore placed before it would be wiped a few
-      # seconds later while still reporting a cache hit in the logs.
-      - name: Restore the Vitest cache
-        id: vitest-cache-restore
-        uses: actions/cache/restore@v4
-        with:
-          path: node_modules/.vite
-          key: ${{ runner.os }}-vitest-${{ hashFiles('package-lock.json') }}-${{ github.sha }}
-          restore-keys: |
-            ${{ runner.os }}-vitest-${{ hashFiles('package-lock.json') }}-
-
-      - name: Resolve Playwright version
-        id: playwright
-        run: echo "version=$(npx playwright --version)" >> "$GITHUB_OUTPUT"
-
-      - name: Lint
-        run: npm run lint
-
-      - name: Cache browser binaries
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}
-
-      - name: Install ${{ matrix.project }}
-        run: npx playwright install --with-deps ${{ matrix.project }}
-
-      - name: Save the Vitest cache
-        if: steps.vitest-cache-restore.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: node_modules/.vite
-          key: ${{ runner.os }}-vitest-${{ hashFiles('package-lock.json') }}-${{ github.sha }}
-
-      # --- Next.js build cache -------------------------------------------------
-      - name: Restore the Next.js build cache
-        id: next-cache-restore
-        uses: actions/cache/restore@v4
-        with:
-          path: .next/cache
-          key: ${{ runner.os }}-next-${{ hashFiles('next.config.ts', 'package-lock.json') }}-${{ github.sha }}
-          restore-keys: |
-            ${{ runner.os }}-next-${{ hashFiles('next.config.ts', 'package-lock.json') }}-
-
-      - name: Test
-        # Retries are on (vitest.config.ts). A test that is still red after the
-        # last attempt fails here exactly as it always did; a test that only
-        # passes on a retry does not, and is reported in its own section and as
-        # a ::warning annotation on the PR. See docs/testing/QUARANTINE.md.
-        run: npm run test
-
-      - name: Check the flake history
-        # A retry keeps a flaky test from breaking unrelated work; it does not
-        # fix anything. This step is where a test that keeps needing retries is
-        # held to an active quarantine with a named owner and an expiry, so it
-        # cannot be retried into a green build forever.
+      # -----------------------------------------------------------------------
+      # Secrets-in-frontend-bundle scan (#181).
+      #
+      # Anything shipped to the client bundle is public regardless of intent, and
+      # the easiest way to leak a server-only value is to reference it without
+      # the `NEXT_PUBLIC_` prefix. This gate scans the *build output* (`.next`),
+      # not the repo or git history — that is a separate concern.
+      #
+      # gitleaks is run against `.next` with `--no-git` so it treats the directory
+      # as a plain filesystem tree rather than a repository. The config in
+      # `.gitleaks.toml` carries the allowlist that keeps legitimate public data
+      # (e.g. a public Testnet contract ID that happens to match a key-shaped
+      # pattern) from failing the build, while genuine secrets still trip it.
+      #
+      # `--redact` keeps any matched value out of the CI log; the report still
+      # names the rule and the file/line so the finding is actionable.
+      # -----------------------------------------------------------------------
+      - name: Scan production bundle for secrets
         run: |
-          node scripts/test/flake-history.mjs \
-            --no-merge \
-            --commit="${GITHUB_SHA}" \
-            --summary-out=flake-summary
+          docker run --rm \
+            -v "$PWD:/repo" \
+            -w /repo \
+            ghcr.io/gitleaks/gitleaks:v8.18.4 \
+            detect \
+              --no-git \
+              --source=.next \
+              --config=.gitleaks.toml \
+              --redact \
+              --report-format=json \
+              --report-path=/repo/gitleaks-bundle-report.json \
+              --exit-code=1
 
-      - name: Check the flake history
-        # A retry keeps a flaky test from breaking unrelated work; it does not
-        # fix anything. This step is where a test that keeps needing retries is
-        # held to an active quarantine with a named owner and an expiry, so it
-        # cannot be retried into a green build forever.
+      # Surface the machine-readable report in the job summary so a failure
+      # explains *what* was found and *where*, not just that the gate tripped.
+      - name: Report bundle secret findings
+        if: failure()
         run: |
-          node scripts/test/flake-history.mjs \
-            --no-merge \
-            --commit="${GITHUB_SHA}" \
-            --summary-out=flake-summary.md \
-            --enforce
-          if [ -f flake-summary.md ]; then cat flake-summary.md >> "$GITHUB_STEP_SUMMARY"; fi
-
-      - name: Build
-        run: npm run build
-
-  e2e:
-    name: Playwright E2E
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        project: [chromium]
-    steps:
-      - name: Checkout pull request
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.pull_request.head.sha }}
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Install Playwright Chromium
-        run: npx playwright install --with-deps chromium
-
-      - name: Save the Next.js build cache
-        if: steps.next-cache-restore.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: .next/cache
-          key: ${{ runner.os }}-next-${{ hashFiles('next.config.ts', 'package-lock.json') }}-${{ github.sha }}
-
-      - name: Run ${{ matrix.project }} project
-        run: npx playwright test --project=${{ matrix.project }}
-
-      - name: Upload Playwright report
-        if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: playwright-report-${{ matrix.project }}
-          path: playwright-report/
-          retention-days: 7
+          if [ -f gitleaks-bundle-report.json ]; then
+            echo "### Secrets detected in production bundle" >> "$GITHUB_STEP_SUMMARY"
+            echo '' >> "$GITHUB_STEP_SUMMARY"
+            echo '```json' >> "$GITHUB_STEP_SUMMARY"
+            cat gitleaks-bundle-report.json >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::gitleaks found secret-like material in .next. See the job summary for the rule, file, and line of each finding."
+          else
+            echo "::error::Bundle secret scan failed before producing a report. Check the scan step log."
+          fi

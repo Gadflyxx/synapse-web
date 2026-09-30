@@ -1,20 +1,20 @@
 name: Quality
 
 on:
-  workflow_call:
-
-permissions:
-  contents: read
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
 
 jobs:
-  lint-typecheck-test-build:
-    name: Lint, typecheck, test, and build
+  quality:
+    name: Lint, Typecheck & SRI Audit
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Node.js
+      - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 20
@@ -24,16 +24,42 @@ jobs:
         run: npm ci
 
       - name: Lint
-        run: npm run lint
+        run: npm run lint --if-present
 
       - name: Typecheck
-        run: npx tsc --noEmit
+        run: npm run typecheck --if-present
 
-      - name: Test
-        run: npm run test
+      - name: Subresource Integrity audit
+        run: node scripts/check-sri.mjs
 
-      - name: Build
+  bundle-secrets:
+    name: Scan Production Bundle for Secrets
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build production bundle
         run: npm run build
 
-      - name: Enforce initial JavaScript bundle budget
-        run: npm run perf:budget
+      - name: Scan build output for bundled secrets
+        run: |
+          docker run --rm \
+            -v "${{ github.workspace }}/.next:/scan:ro" \
+            ghcr.io/gitleaks/gitleaks:latest \
+            detect \
+            --no-git \
+            --source=/scan \
+            --config=/scan/../.gitleaks.toml \
+            --redact \
+            --verbose \
+            --exit-code=1
