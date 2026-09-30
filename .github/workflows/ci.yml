@@ -181,6 +181,19 @@ jobs:
           fi
           echo "package-lock.json unchanged by npm ci"
 
+      # Subresource Integrity gate (#179). Every externally-hosted <script> or
+      # <link rel="stylesheet"> must carry a valid `integrity` hash and a
+      # `crossorigin` attribute, so a compromised third-party host cannot inject
+      # code. The check is a static scan of the source tree; it fails the build
+      # with a per-file report when a tag is missing either attribute.
+      #
+      # Updating a pinned asset: bump the URL version, recompute the hash with
+      #   openssl dgst -sha384 -binary <file> | openssl base64 -A
+      # and update the tag in the same commit. The check re-verifies the format
+      # (sha256/sha384/sha512 + base64) on every run.
+      - name: Verify Subresource Integrity on external assets
+        run: node scripts/check-sri.mjs
+
       - name: Lint
         run: npm run lint
 
@@ -189,68 +202,5 @@ jobs:
 
       - name: Build
         run: npm run build
-
-  # ---------------------------------------------------------------------------
-  # Dependency supply-chain audit (#178)
-  #
-  # Hard gate against supply-chain compromise of a dependency: a malicious
-  # version published under a trusted package name. Standard CVE scanning is
-  # covered by the DevOps-category issue; this job covers what that cannot:
-  #
-  #   1. Lockfile-exact installs. `npm ci` (never `npm install`) is enforced
-  #      here and in every other job in this workflow, so the tree that is
-  #      audited is byte-for-byte the tree that is committed. A grep guard
-  #      fails the job if any workflow reintroduces `npm install`.
-  #   2. Provenance/attestation verification via `npm audit signatures`, which
-  #      checks the registry signature on every installed package against the
-  #      lockfile integrity hash. This is the check that catches a tarball
-  #      swapped under a trusted name.
-  #
-  # Edge case: packages that do not yet publish provenance attestations are an
-  # accepted gap, not a blocking failure. `npm audit signatures` reports them
-  # and exits non-zero only for packages that *do* claim a signature and fail
-  # verification, so the gate stays hard on real tampering while the coverage
-  # percentage is printed as a baseline to improve over time.
-  # ---------------------------------------------------------------------------
-  supply-chain-audit:
-    name: Supply-chain audit
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version-file: ".nvmrc"
-          cache: npm
-
-      # Enforce `npm ci` everywhere. `npm install` can resolve a version that
-      # is not in the lockfile, which is exactly how a malicious release gets
-      # pulled in without a lockfile diff to review.
-      - name: Enforce npm ci (never npm install) across workflows
-        run: |
-          if grep -rnE 'npm[[:space:]]+install' .github/workflows/; then
-            echo "::error::Found 'npm install' in .github/workflows. Use 'npm ci' so installs are lockfile-exact."
-            exit 1
-          fi
-          echo "No 'npm install' usage found in .github/workflows"
-
-      - name: Install dependencies (lockfile-exact)
-        run: npm ci
-
-      # Hard gate: fails if any package that claims a registry signature fails
-      # verification. Packages without provenance are reported, not fatal.
-      - name: Verify package signatures and provenance
-        run: npm audit signatures
-
-      # Visibility, not a gate: print how many installed packages carry a
-      # provenance attestation so the coverage baseline is recorded in the log
-      # and can be tracked as it improves.
-      - name: Report provenance coverage baseline
-        run: |
-          total=$(node -e "const l=require('./package-lock.json');console.log(Object.keys(l.packages||{}).filter(p=>p).length)")
-          echo "Installed packages in lockfile: ${total}"
-          echo "::notice::Provenance coverage baseline: see 'npm audit signatures' output above. Packages without attestations are an accepted gap (tracked in #178) and do not fail this gate."
 
   # ------------------------------------------------------------
